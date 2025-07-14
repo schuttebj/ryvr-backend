@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # Database
     database_url: str = os.getenv(
         "DATABASE_URL", 
-        "postgresql://ryvr_user:Iodphi5TaXFwShKSvWiECxyGSRoTn93h@dpg-d1qmjl0dl3ps739393u0-a.oregon-postgres.render.com/ryvr"
+        "postgresql+psycopg://ryvr_user:Iodphi5TaXFwShKSvWiECxyGSRoTn93h@dpg-d1qmjl0dl3ps739393u0-a.oregon-postgres.render.com/ryvr"
     )
     
     # JWT
