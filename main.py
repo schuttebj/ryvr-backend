@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import auth, clients, integrations, workflows, analytics
+from routers import auth, clients, integrations, workflows, analytics, seo, ai
 from config import settings
 
 # Create database tables
@@ -39,6 +39,8 @@ app.include_router(clients.router, prefix="/api/v1/clients", tags=["clients"])
 app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["integrations"])
 app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["workflows"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
+app.include_router(seo.router, prefix="/api/v1/seo", tags=["seo"])
+app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 
 @app.get("/")
 async def root():
