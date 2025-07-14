@@ -26,7 +26,7 @@ class User(UserBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Authentication schemas
 class Token(BaseModel):
@@ -66,7 +66,7 @@ class Client(ClientBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Website schemas
 class WebsiteBase(BaseModel):
@@ -91,7 +91,7 @@ class Website(WebsiteBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Integration schemas
 class IntegrationBase(BaseModel):
@@ -117,7 +117,7 @@ class Integration(IntegrationBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Task Template schemas
 class TaskTemplateBase(BaseModel):
@@ -138,7 +138,7 @@ class TaskTemplate(TaskTemplateBase):
     created_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Workflow schemas
 class WorkflowBase(BaseModel):
@@ -169,7 +169,7 @@ class Workflow(WorkflowBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Workflow Execution schemas
 class WorkflowExecutionBase(BaseModel):
@@ -188,7 +188,7 @@ class WorkflowExecution(WorkflowExecutionBase):
     completed_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Credit Transaction schemas
 class CreditTransactionBase(BaseModel):
@@ -206,7 +206,7 @@ class CreditTransaction(CreditTransactionBase):
     created_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # API Response schemas
 class APIResponse(BaseModel):
