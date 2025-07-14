@@ -1,10 +1,10 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 # Base schemas
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     username: str
     full_name: Optional[str] = None
     is_active: bool = True
@@ -14,7 +14,7 @@ class UserCreate(UserBase):
     password: str
 
 class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     username: Optional[str] = None
     full_name: Optional[str] = None
     is_active: Optional[bool] = None
@@ -44,7 +44,7 @@ class LoginRequest(BaseModel):
 class ClientBase(BaseModel):
     name: str
     description: Optional[str] = None
-    contact_email: Optional[EmailStr] = None
+    contact_email: Optional[str] = None
 
 class ClientCreate(ClientBase):
     credits_balance: int = 1000  # Default starting credits
@@ -52,7 +52,7 @@ class ClientCreate(ClientBase):
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    contact_email: Optional[EmailStr] = None
+    contact_email: Optional[str] = None
     credits_balance: Optional[int] = None
     is_active: Optional[bool] = None
 
