@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ryvr-api
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 1440
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATAFORSEO_USERNAME
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false
+      - key: DATAFORSEO_BASE_URL
+        value: https://sandbox.dataforseo.com
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false 
