@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -43,7 +43,7 @@ def verify_token(token: str) -> Optional[str]:
         if username is None:
             return None
         return username
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 def authenticate_user(db: Session, username: str, password: str) -> Optional[models.User]:
