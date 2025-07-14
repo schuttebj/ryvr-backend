@@ -4,13 +4,14 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import List
 
-from database import get_db
+from database import get_db, engine, Base
 from auth import (
     authenticate_user, 
     create_access_token, 
     get_current_active_user, 
     get_current_admin_user,
-    create_user
+    create_user,
+    get_password_hash
 )
 from config import settings
 import models, schemas
@@ -109,4 +110,95 @@ async def delete_user(
     
     db.delete(db_user)
     db.commit()
-    return {"message": "User deleted successfully"} 
+    return {"message": "User deleted successfully"}
+
+@router.post("/reset-database")
+async def reset_database(
+    db: Session = Depends(get_db)
+):
+    """Reset database and create default admin user (development only)."""
+    try:
+        # Drop all tables
+        Base.metadata.drop_all(bind=engine)
+        
+        # Create all tables
+        Base.metadata.create_all(bind=engine)
+        
+        # Create default admin user
+        admin_user = models.User(
+            email="admin@ryvr.com",
+            username="admin",
+            hashed_password=get_password_hash("password"),
+            full_name="Admin User",
+            is_active=True,
+            is_admin=True
+        )
+        
+        db.add(admin_user)
+        db.commit()
+        
+        return {
+            "message": "Database reset successfully",
+            "admin_credentials": {
+                "email": "admin@ryvr.com", 
+                "username": "admin",
+                "password": "password"
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset database: {str(e)}"
+        )
+
+@router.post("/init-database")
+async def init_database(
+    db: Session = Depends(get_db)
+):
+    """Initialize database with default admin user (development only)."""
+    try:
+        # Check if admin user already exists
+        existing_admin = db.query(models.User).filter(
+            (models.User.email == "admin@ryvr.com") | (models.User.username == "admin")
+        ).first()
+        
+        if existing_admin:
+            return {
+                "message": "Admin user already exists",
+                "admin_credentials": {
+                    "email": "admin@ryvr.com", 
+                    "username": "admin",
+                    "password": "password"
+                }
+            }
+        
+        # Create default admin user
+        admin_user = models.User(
+            email="admin@ryvr.com",
+            username="admin",
+            hashed_password=get_password_hash("password"),
+            full_name="Admin User",
+            is_active=True,
+            is_admin=True
+        )
+        
+        db.add(admin_user)
+        db.commit()
+        
+        return {
+            "message": "Admin user created successfully",
+            "admin_credentials": {
+                "email": "admin@ryvr.com", 
+                "username": "admin",
+                "password": "password"
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize database: {str(e)}"
+        ) 

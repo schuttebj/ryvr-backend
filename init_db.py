@@ -51,7 +51,7 @@ def create_default_admin():
             username="admin",
             hashed_password=get_password_hash("password"),
             is_active=True,
-            user_type="admin"
+            is_admin=True
         )
         
         db.add(admin_user)
