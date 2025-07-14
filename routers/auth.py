@@ -4,16 +4,16 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import List
 
-from ..database import get_db
-from ..auth import (
+from database import get_db
+from auth import (
     authenticate_user, 
     create_access_token, 
     get_current_active_user, 
     get_current_admin_user,
     create_user
 )
-from ..config import settings
-from .. import models, schemas
+from config import settings
+import models, schemas
 
 router = APIRouter()
 

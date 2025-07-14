@@ -4,9 +4,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
 import uvicorn
 
-from .database import engine, Base
-from .routers import auth, clients, integrations, workflows, analytics
-from .config import settings
+from database import engine, Base
+from routers import auth, clients, integrations, workflows, analytics
+from config import settings
 
 # Create database tables
 @asynccontextmanager
