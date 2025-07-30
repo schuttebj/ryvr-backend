@@ -156,17 +156,20 @@ async def analyze_serp(
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,  # Can be linked to a workflow later
-            client_id=current_user.id,
-            status="pending",
-            input_data={
-                "keyword": keyword,
-                "location_code": location_code,
-                "language_code": language_code,
-                "device": device
-            },
-            output_data={},
+            status="completed",
             credits_used=task_result.get('cost', 1),
-            started_at=datetime.utcnow()
+            execution_data={
+                "input_data": {
+                    "keyword": keyword,
+                    "location_code": location_code,
+                    "language_code": language_code,
+                    "device": device,
+                    "depth": depth,
+                    "organic_only": organic_only
+                },
+                "output_data": task_result,
+                "user_id": current_user.id  # Track who ran this
+            }
         )
         
         db.add(workflow_execution)
@@ -225,16 +228,17 @@ async def analyze_keywords_search_volume(
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,
-            client_id=current_user.id,
-            status="pending",
-            input_data={
-                "keywords": keywords,
-                "location_code": location_code,
-                "language_code": language_code
-            },
-            output_data={},
+            status="completed",
             credits_used=task_result.get('cost', len(keywords)),
-            started_at=datetime.utcnow()
+            execution_data={
+                "input_data": {
+                    "keywords": keywords,
+                    "location_code": location_code,
+                    "language_code": language_code
+                },
+                "output_data": task_result,
+                "user_id": current_user.id
+            }
         )
         
         db.add(workflow_execution)
@@ -279,16 +283,17 @@ async def get_keywords_for_site(
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,
-            client_id=current_user.id,
-            status="pending",
-            input_data={
-                "target_site": target_site,
-                "location_code": location_code,
-                "language_code": language_code
-            },
-            output_data={},
+            status="completed",
             credits_used=task_result.get('cost', 5),
-            started_at=datetime.utcnow()
+            execution_data={
+                "input_data": {
+                    "target_site": target_site,
+                    "location_code": location_code,
+                    "language_code": language_code
+                },
+                "output_data": task_result,
+                "user_id": current_user.id
+            }
         )
         
         db.add(workflow_execution)
@@ -322,16 +327,19 @@ async def analyze_competitors_domain(
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,
-            client_id=current_user.id,
-            status="pending",
-            input_data={
+
+            status="completed",
+            execution_data={
+                "input_data": {
                 "domain": domain,
                 "location_code": location_code,
                 "language_code": language_code
+                },
+                "output_data": task_result,
+                "user_id": current_user.id
             },
-            output_data={},
             credits_used=task_result.get('cost', 3),
-            started_at=datetime.utcnow()
+
         )
         
         db.add(workflow_execution)
@@ -363,15 +371,18 @@ async def analyze_content(
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,
-            client_id=current_user.id,
-            status="pending",
-            input_data={
+
+            status="completed",
+            execution_data={
+                "input_data": {
                 "content": content[:500],  # Truncate for storage
                 "keyword": keyword
+                },
+                "output_data": task_result,
+                "user_id": current_user.id
             },
-            output_data={},
             credits_used=task_result.get('cost', 2),
-            started_at=datetime.utcnow()
+
         )
         
         db.add(workflow_execution)
@@ -405,16 +416,19 @@ async def get_serp_screenshot(
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,
-            client_id=current_user.id,
-            status="pending",
-            input_data={
+
+            status="completed",
+            execution_data={
+                "input_data": {
                 "keyword": keyword,
                 "location_code": location_code,
                 "language_code": language_code
+                },
+                "output_data": task_result,
+                "user_id": current_user.id
             },
-            output_data={},
             credits_used=task_result.get('cost', 1),
-            started_at=datetime.utcnow()
+
         )
         
         db.add(workflow_execution)
