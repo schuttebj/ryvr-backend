@@ -105,8 +105,8 @@ async def analyze_serp(
         # Use provided search_param or build from filters
         final_search_param = search_param or (search_params if search_params else None)
         
-        # Submit task to DataForSEO
-        task_result = dataforseo_service.post_serp_task(
+        # Submit task to DataForSEO (asynchronous)
+        task_submission = dataforseo_service.post_serp_task(
             keyword=keyword,
             location_code=location_code,
             language_code=language_code,
@@ -117,47 +117,39 @@ async def analyze_serp(
             search_param=final_search_param
         )
         
-        # Filter results if organic_only is requested
-        if organic_only and 'tasks' in task_result:
-            logger.info(f"🔍 Applying organic_only filter with depth={depth}")
-            for task in task_result['tasks']:
-                if 'result' in task and task['result']:
-                    for result in task['result']:
-                        if 'items' in result:
-                            # Filter to only organic results with domains
-                            original_items = result['items']
-                            logger.info(f"📊 Original items count: {len(original_items)}")
-                            
-                            organic_items = [
-                                item for item in original_items
-                                if (item.get('type') == 'organic' and 
-                                    item.get('domain') and 
-                                    item.get('url'))
-                            ]
-                            logger.info(f"🌱 Organic items count: {len(organic_items)}")
-                            
-                            # Limit to requested depth
-                            result['items'] = organic_items[:depth]
-                            result['items_count'] = len(result['items'])
-                            logger.info(f"✂️ Final items count after depth limit: {len(result['items'])}")
-        else:
-            # Even if not filtering to organic only, still apply depth limit
-            if 'tasks' in task_result:
-                logger.info(f"🔍 Applying depth limit={depth} (no organic filter)")
-                for task in task_result['tasks']:
-                    if 'result' in task and task['result']:
-                        for result in task['result']:
-                            if 'items' in result:
-                                original_count = len(result['items'])
-                                result['items'] = result['items'][:depth]
-                                result['items_count'] = len(result['items'])
-                                logger.info(f"✂️ Limited items from {original_count} to {len(result['items'])}")
+        # Extract task ID from submission response
+        task_id = None
+        if task_submission.get('tasks') and len(task_submission['tasks']) > 0:
+            task_id = task_submission['tasks'][0].get('id')
         
-        # Create workflow execution record
+        if not task_id:
+            raise HTTPException(status_code=500, detail="Failed to get task ID from DataForSEO")
+        
+        logger.info(f"📋 SERP task submitted with ID: {task_id}")
+        
+        # Return task submission response with task ID for status checking
+        return {
+            "provider": "DataForSEO",
+            "task_type": "serp_analysis",
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "submitted",
+            "task_id": task_id,
+            "message": "Task submitted successfully. Use task_id to check status and retrieve results.",
+            "input_data": {
+                "keyword": keyword,
+                "location_code": location_code,
+                "language_code": language_code,
+                "device": device,
+                "depth": depth,
+                "organic_only": organic_only
+            }
+        }
+        
+        # Create workflow execution record for task submission
         workflow_execution = models.WorkflowExecution(
             workflow_id=None,  # Can be linked to a workflow later
-            status="completed",
-            credits_used=task_result.get('cost', 1),
+            status="submitted",
+            credits_used=0,  # Will be updated when task completes
             execution_data={
                 "input_data": {
                     "keyword": keyword,
@@ -167,7 +159,8 @@ async def analyze_serp(
                     "depth": depth,
                     "organic_only": organic_only
                 },
-                "output_data": task_result,
+                "task_id": task_id,
+                "task_status": "submitted",
                 "user_id": current_user.id  # Track who ran this
             }
         )
@@ -175,7 +168,22 @@ async def analyze_serp(
         db.add(workflow_execution)
         db.commit()
         
-        return dataforseo_service.standardize_response(task_result, "serp_analysis")
+        return {
+            "provider": "DataForSEO",
+            "task_type": "serp_analysis",
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "submitted",
+            "task_id": task_id,
+            "message": "Task submitted successfully. Use task_id to check status and retrieve results.",
+            "input_data": {
+                "keyword": keyword,
+                "location_code": location_code,
+                "language_code": language_code,
+                "device": device,
+                "depth": depth,
+                "organic_only": organic_only
+            }
+        }
         
     except Exception as e:
         logger.error(f"SERP analysis error: {e}")
@@ -184,15 +192,108 @@ async def analyze_serp(
 @router.get("/serp/results/{task_id}", response_model=Dict[str, Any])
 async def get_serp_results(
     task_id: str,
+    organic_only: bool = Query(False, description="Filter to show only organic results with domains"),
+    depth: int = Query(10, description="Number of results to retrieve (1-700)"),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Get SERP analysis results by task ID"""
+    """Get SERP analysis results by task ID with optional filtering"""
     try:
-        results = dataforseo_service.get_serp_results(task_id)
-        return dataforseo_service.standardize_response(results, "serp_analysis")
+        # Get raw results from DataForSEO
+        raw_results = dataforseo_service.get_serp_results(task_id)
+        
+        # Check if task is still processing
+        if raw_results.get('status_code') != 20000:
+            return {
+                "provider": "DataForSEO",
+                "task_type": "serp_analysis",
+                "timestamp": datetime.utcnow().isoformat(),
+                "status": "processing",
+                "task_id": task_id,
+                "message": "Task is still processing. Please check again later.",
+                "data": {}
+            }
+        
+        # Process and filter results
+        processed_results = raw_results
+        if 'tasks' in raw_results and raw_results['tasks']:
+            task_data = raw_results['tasks'][0]
+            
+            # Apply organic_only filter if requested
+            if organic_only and 'result' in task_data and task_data['result']:
+                logger.info(f"🔍 Applying organic_only filter with depth={depth}")
+                for result in task_data['result']:
+                    if 'items' in result:
+                        # Filter to only organic results with domains
+                        original_items = result['items']
+                        logger.info(f"📊 Original items count: {len(original_items)}")
+                        
+                        organic_items = [
+                            item for item in original_items
+                            if (item.get('type') == 'organic' and 
+                                item.get('domain') and 
+                                item.get('url'))
+                        ]
+                        logger.info(f"🌱 Organic items count: {len(organic_items)}")
+                        
+                        # Limit to requested depth
+                        result['items'] = organic_items[:depth]
+                        result['items_count'] = len(result['items'])
+                        logger.info(f"✂️ Final items count after depth limit: {len(result['items'])}")
+            else:
+                # Apply depth limit even if not filtering to organic only
+                if 'result' in task_data and task_data['result']:
+                    logger.info(f"🔍 Applying depth limit={depth} (no organic filter)")
+                    for result in task_data['result']:
+                        if 'items' in result:
+                            original_count = len(result['items'])
+                            result['items'] = result['items'][:depth]
+                            result['items_count'] = len(result['items'])
+                            logger.info(f"✂️ Limited items from {original_count} to {len(result['items'])}")
+        
+        # Return standardized response
+        return dataforseo_service.standardize_response(processed_results, "serp_analysis")
+        
     except Exception as e:
         logger.error(f"SERP results error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get SERP results")
+
+@router.get("/serp/status/{task_id}", response_model=Dict[str, Any])
+async def get_serp_task_status(
+    task_id: str,
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Check SERP task status by task ID"""
+    try:
+        # Get task status from DataForSEO
+        task_status = dataforseo_service.get_serp_results(task_id)
+        
+        # Determine status based on response
+        if task_status.get('status_code') == 20000:
+            status = "completed"
+            message = "Task completed successfully"
+        elif task_status.get('status_code') == 20001:
+            status = "processing"
+            message = "Task is still processing"
+        elif task_status.get('status_code') == 20002:
+            status = "failed"
+            message = "Task failed"
+        else:
+            status = "unknown"
+            message = "Task status unknown"
+        
+        return {
+            "provider": "DataForSEO",
+            "task_type": "serp_analysis",
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": status,
+            "task_id": task_id,
+            "message": message,
+            "data": task_status
+        }
+        
+    except Exception as e:
+        logger.error(f"SERP task status error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get task status")
 
 @router.get("/serp/ready", response_model=List[Dict[str, Any]])
 async def get_ready_serp_tasks(
