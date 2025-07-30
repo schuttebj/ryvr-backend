@@ -63,18 +63,57 @@ async def analyze_serp(
     keyword: str = Query(..., description="Keyword to analyze"),
     location_code: int = Query(2840, description="Location code (default: USA)"),
     language_code: str = Query("en", description="Language code"),
-    device: str = Query("desktop", description="Device type"),
+    device: str = Query("desktop", description="Device type (desktop/mobile)"),
+    os: Optional[str] = Query(None, description="Operating system (auto-selected if not specified)"),
+    depth: int = Query(10, description="Number of results to retrieve (1-700)"),
+    target: Optional[str] = Query(None, description="Target domain filter (e.g., example.com)"),
+    search_param: Optional[str] = Query(None, description="Additional search parameters for filtering"),
+    result_type: Optional[str] = Query(None, description="Result type filter (news, shopping, images, videos)"),
+    date_range: Optional[str] = Query(None, description="Date range filter"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Submit SERP analysis task"""
+    """Submit SERP analysis task with enhanced filtering"""
     try:
+        # Build search parameters from frontend filters
+        search_params = ""
+        
+        # Date range filtering
+        if date_range and date_range != 'any':
+            date_filters = {
+                'past_hour': 'qdr:h',
+                'past_24h': 'qdr:d', 
+                'past_week': 'qdr:w',
+                'past_month': 'qdr:m',
+                'past_year': 'qdr:y'
+            }
+            if date_range in date_filters:
+                search_params += f"&tbs={date_filters[date_range]}"
+        
+        # Result type filtering
+        if result_type and result_type != 'all':
+            result_type_filters = {
+                'news': '&tbm=nws',
+                'shopping': '&tbm=shop',
+                'images': '&tbm=isch', 
+                'videos': '&tbm=vid'
+            }
+            if result_type in result_type_filters:
+                search_params += result_type_filters[result_type]
+        
+        # Use provided search_param or build from filters
+        final_search_param = search_param or (search_params if search_params else None)
+        
         # Submit task to DataForSEO
         task_result = dataforseo_service.post_serp_task(
             keyword=keyword,
             location_code=location_code,
             language_code=language_code,
-            device=device
+            device=device,
+            os=os,
+            depth=depth,
+            target=target,
+            search_param=final_search_param
         )
         
         # Create workflow execution record

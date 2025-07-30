@@ -76,18 +76,33 @@ class DataForSEOService:
         return result.get('tasks', [{}])[0].get('result', [])
     
     def post_serp_task(self, keyword: str, location_code: int = 2840, 
-                      language_code: str = "en", device: str = "desktop") -> Dict:
-        """Submit SERP analysis task"""
+                      language_code: str = "en", device: str = "desktop",
+                      os: str = None, depth: int = 10, target: str = None,
+                      search_param: str = None) -> Dict:
+        """Submit SERP analysis task with enhanced filtering parameters"""
+        
+        # Auto-select OS based on device if not specified
+        if os is None:
+            os = 'android' if device == 'mobile' else 'windows'
+        
         post_data = [{
             'keyword': keyword,
             'location_code': location_code,
             'language_code': language_code,
             'device': device,
-            'os': 'windows',
-            'depth': 100,  # Number of results to retrieve
+            'os': os,
+            'depth': depth,  # Configurable results count (1-700)
             'calculate_rectangles': True,
             'include_serp_info': True
         }]
+        
+        # Add target domain filtering if specified
+        if target:
+            post_data[0]['target'] = target
+            
+        # Add search parameters for date/type filtering if specified
+        if search_param:
+            post_data[0]['search_param'] = search_param
         
         return self._request('/v3/serp/google/organic/task_post', 'POST', post_data)
     

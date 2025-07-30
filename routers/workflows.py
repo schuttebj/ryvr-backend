@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict, Any
+import logging
 
 from database import get_db
 from auth import get_current_active_user
 import models, schemas
+from services.workflow_execution_service import workflow_execution_service
 
 router = APIRouter()
 
@@ -199,4 +201,150 @@ async def read_task_templates(
         query = query.filter(models.TaskTemplate.category == category)
     
     templates = query.offset(skip).limit(limit).all()
-    return templates 
+    return templates
+
+# Node Execution Endpoints
+
+@router.post("/{workflow_id}/nodes/{node_id}/execute", response_model=schemas.NodeExecutionResponse)
+async def execute_workflow_node(
+    workflow_id: int,
+    node_id: str,
+    node_request: schemas.NodeExecutionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Execute a single node for testing purposes"""
+    try:
+        # Verify workflow ownership
+        workflow = db.query(models.Workflow).join(models.Client).filter(
+            models.Workflow.id == workflow_id,
+            models.Client.owner_id == current_user.id
+        ).first()
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        # Extract node type from config
+        node_type = node_request.node_config.get('type', 'unknown')
+        
+        # Execute the node
+        result = await workflow_execution_service.execute_node(
+            node_id=node_id,
+            node_type=node_type,
+            node_config=node_request.node_config,
+            input_data=node_request.input_data
+        )
+        
+        if not result['success']:
+            raise HTTPException(status_code=500, detail=result.get('error', 'Node execution failed'))
+        
+        return schemas.NodeExecutionResponse(
+            success=True,
+            node_id=node_id,
+            execution_id=result['execution_id'],
+            data=result['data'],
+            execution_time_ms=result['execution_time_ms'],
+            credits_used=result.get('credits_used', 0)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Node execution error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to execute node")
+
+@router.get("/{workflow_id}/node-data", response_model=Dict[str, Any])
+async def get_workflow_node_data(
+    workflow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get stored data from all executed nodes in workflow"""
+    try:
+        # Verify workflow ownership
+        workflow = db.query(models.Workflow).join(models.Client).filter(
+            models.Workflow.id == workflow_id,
+            models.Client.owner_id == current_user.id
+        ).first()
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        # Get all stored node results
+        node_results = workflow_execution_service.get_all_node_results()
+        
+        return {
+            "success": True,
+            "workflow_id": workflow_id,
+            "node_data": node_results,
+            "total_nodes": len(node_results)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Get node data error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get node data")
+
+@router.get("/{workflow_id}/nodes/{node_id}/data", response_model=Dict[str, Any])
+async def get_node_execution_data(
+    workflow_id: int,
+    node_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get stored execution data for a specific node"""
+    try:
+        # Verify workflow ownership
+        workflow = db.query(models.Workflow).join(models.Client).filter(
+            models.Workflow.id == workflow_id,
+            models.Client.owner_id == current_user.id
+        ).first()
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        # Get node execution result
+        node_result = workflow_execution_service.get_node_execution_result(node_id)
+        
+        if node_result is None:
+            raise HTTPException(status_code=404, detail="Node data not found")
+        
+        return {
+            "success": True,
+            "node_id": node_id,
+            "data": node_result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Get node execution data error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get node execution data")
+
+@router.delete("/{workflow_id}/node-data", response_model=Dict[str, Any])
+async def clear_workflow_node_data(
+    workflow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Clear all stored node execution data"""
+    try:
+        # Verify workflow ownership
+        workflow = db.query(models.Workflow).join(models.Client).filter(
+            models.Workflow.id == workflow_id,
+            models.Client.owner_id == current_user.id
+        ).first()
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        # Clear node results
+        workflow_execution_service.clear_node_results()
+        
+        return {
+            "success": True,
+            "message": "All node execution data cleared"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Clear node data error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear node data") 

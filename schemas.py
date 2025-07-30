@@ -234,4 +234,37 @@ class ClientStats(BaseModel):
     credits_used: int
     active_workflows: int
     total_executions: int
-    success_rate: float 
+    success_rate: float
+
+# Data Processing schemas
+class DataFilterRequest(BaseModel):
+    source_data: List[Dict[str, Any]]
+    filter_config: Dict[str, Any]
+
+class DataTransformRequest(BaseModel):
+    source_data: List[Dict[str, Any]]
+    operations: List[Dict[str, Any]]
+
+class DataValidationRequest(BaseModel):
+    source_data: List[Dict[str, Any]]
+    validation_rules: Dict[str, Any]
+
+# Node Execution schemas
+class NodeExecutionRequest(BaseModel):
+    node_config: Dict[str, Any]
+    input_data: Optional[Dict[str, Any]] = None
+
+class NodeExecutionResponse(BaseModel):
+    success: bool
+    node_id: str
+    execution_id: str
+    data: Dict[str, Any]
+    execution_time_ms: int
+    credits_used: int = 0
+
+class WorkflowNodeData(BaseModel):
+    node_id: str
+    node_type: str
+    execution_data: Dict[str, Any]
+    executed_at: datetime
+    status: str
