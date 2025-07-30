@@ -70,6 +70,7 @@ async def analyze_serp(
     search_param: Optional[str] = Query(None, description="Additional search parameters for filtering"),
     result_type: Optional[str] = Query(None, description="Result type filter (news, shopping, images, videos)"),
     date_range: Optional[str] = Query(None, description="Date range filter"),
+    organic_only: bool = Query(False, description="Filter to show only organic results with domains"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
@@ -115,6 +116,42 @@ async def analyze_serp(
             target=target,
             search_param=final_search_param
         )
+        
+        # Filter results if organic_only is requested
+        if organic_only and 'tasks' in task_result:
+            logger.info(f"🔍 Applying organic_only filter with depth={depth}")
+            for task in task_result['tasks']:
+                if 'result' in task and task['result']:
+                    for result in task['result']:
+                        if 'items' in result:
+                            # Filter to only organic results with domains
+                            original_items = result['items']
+                            logger.info(f"📊 Original items count: {len(original_items)}")
+                            
+                            organic_items = [
+                                item for item in original_items
+                                if (item.get('type') == 'organic' and 
+                                    item.get('domain') and 
+                                    item.get('url'))
+                            ]
+                            logger.info(f"🌱 Organic items count: {len(organic_items)}")
+                            
+                            # Limit to requested depth
+                            result['items'] = organic_items[:depth]
+                            result['items_count'] = len(result['items'])
+                            logger.info(f"✂️ Final items count after depth limit: {len(result['items'])}")
+        else:
+            # Even if not filtering to organic only, still apply depth limit
+            if 'tasks' in task_result:
+                logger.info(f"🔍 Applying depth limit={depth} (no organic filter)")
+                for task in task_result['tasks']:
+                    if 'result' in task and task['result']:
+                        for result in task['result']:
+                            if 'items' in result:
+                                original_count = len(result['items'])
+                                result['items'] = result['items'][:depth]
+                                result['items_count'] = len(result['items'])
+                                logger.info(f"✂️ Limited items from {original_count} to {len(result['items'])}")
         
         # Create workflow execution record
         workflow_execution = models.WorkflowExecution(

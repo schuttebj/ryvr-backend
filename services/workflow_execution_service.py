@@ -115,26 +115,65 @@ class WorkflowExecutionService:
                 search_param=config.get('searchParam')
             )
             
-            # For demo purposes, return mock data structure that matches frontend expectations
-            # In production, you would get actual results using task_id
-            mock_serp_data = {
-                'results': [{
-                    'keyword': keyword,
-                    'location_code': config.get('locationCode', 2840),
-                    'language_code': config.get('languageCode', 'en'),
-                    'total_count': config.get('maxResults', 10),
-                    'items': [
-                        {
-                            'title': f'Example Result {i+1} for {keyword}',
-                            'url': f'https://example{i+1}.com',
-                            'domain': f'example{i+1}.com',
-                            'description': f'This is a sample description for result {i+1}',
-                            'position': i+1
-                        }
-                        for i in range(min(config.get('maxResults', 10), 10))
-                    ]
-                }]
-            }
+            # Process real SERP results or use mock data
+            if 'tasks' in task_result and task_result['tasks']:
+                # Real API response - process and filter results
+                raw_results = task_result['tasks'][0].get('result', [])
+                processed_items = []
+                
+                for result_group in raw_results:
+                    items = result_group.get('items', [])
+                    
+                    for item in items:
+                        # Filter based on organicOnly setting
+                        if config.get('organicOnly', False):
+                            # Only include organic results with domains
+                            if (item.get('type') == 'organic' and 
+                                item.get('domain') and 
+                                item.get('url')):
+                                processed_items.append(item)
+                        else:
+                            # Include all items but prioritize those with domains
+                            processed_items.append(item)
+                    
+                    # Respect depth/maxResults limit
+                    max_results = config.get('maxResults', 10)
+                    if len(processed_items) >= max_results:
+                        processed_items = processed_items[:max_results]
+                        break
+                
+                mock_serp_data = {
+                    'results': [{
+                        'keyword': keyword,
+                        'location_code': config.get('locationCode', 2840),
+                        'language_code': config.get('languageCode', 'en'),
+                        'total_count': len(processed_items),
+                        'items': processed_items
+                    }]
+                }
+            else:
+                # Fallback to mock data for testing
+                max_results = config.get('maxResults', 10)
+                mock_serp_data = {
+                    'results': [{
+                        'keyword': keyword,
+                        'location_code': config.get('locationCode', 2840),
+                        'language_code': config.get('languageCode', 'en'),
+                        'total_count': max_results,
+                        'items': [
+                            {
+                                'type': 'organic',
+                                'title': f'Example Result {i+1} for {keyword}',
+                                'url': f'https://example{i+1}.com',
+                                'domain': f'example{i+1}.com',
+                                'description': f'This is a sample description for result {i+1}',
+                                'position': i+1,
+                                'rank_absolute': i+1
+                            }
+                            for i in range(max_results)
+                        ]
+                    }]
+                }
             
             return {
                 'processed': mock_serp_data,
