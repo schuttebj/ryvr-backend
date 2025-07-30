@@ -25,11 +25,12 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend
+# Temporary permissive CORS for testing - TODO: Make more restrictive
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://*.vercel.app"],  # Vite dev + Vercel
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"],  # Allow all origins temporarily
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
