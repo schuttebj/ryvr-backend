@@ -152,9 +152,9 @@ async def analyze_serp(
             credits_used=0,  # Will be updated when task completes
             execution_data={
                 "input_data": {
-                    "keyword": keyword,
-                    "location_code": location_code,
-                    "language_code": language_code,
+                "keyword": keyword,
+                "location_code": location_code,
+                "language_code": language_code,
                     "device": device,
                     "depth": depth,
                     "organic_only": organic_only
@@ -256,35 +256,31 @@ async def get_serp_results(
         # Apply organic_only filter if requested
         if organic_only and 'result' in task_data and task_data['result']:
             logger.info(f"🔍 Applying organic_only filter with depth={depth}")
-            for result in task_data['result']:
-                if 'items' in result:
-                    # Filter to only organic results with domains
-                    original_items = result['items']
-                    logger.info(f"📊 Original items count: {len(original_items)}")
-                    
-                    organic_items = [
-                        item for item in original_items
-                        if (isinstance(item, dict) and 
-                            item.get('type') == 'organic' and 
-                            item.get('domain') and 
-                            item.get('url'))
-                    ]
-                    logger.info(f"🌱 Organic items count: {len(organic_items)}")
-                    
-                    # Limit to requested depth
-                    result['items'] = organic_items[:depth]
-                    result['items_count'] = len(result['items'])
-                    logger.info(f"✂️ Final items count after depth limit: {len(result['items'])}")
+            
+            # The result array contains the SERP items directly
+            original_results = task_data['result']
+            logger.info(f"📊 Original results count: {len(original_results)}")
+            
+            # Filter to only organic results with domains
+            organic_results = [
+                item for item in original_results
+                if (isinstance(item, dict) and 
+                    item.get('type') == 'organic' and 
+                    item.get('domain') and 
+                    item.get('url'))
+            ]
+            logger.info(f"🌱 Organic results count: {len(organic_results)}")
+            
+            # Limit to requested depth
+            task_data['result'] = organic_results[:depth]
+            logger.info(f"✂️ Final results count after depth limit: {len(task_data['result'])}")
         else:
             # Apply depth limit even if not filtering to organic only
             if 'result' in task_data and task_data['result']:
                 logger.info(f"🔍 Applying depth limit={depth} (no organic filter)")
-                for result in task_data['result']:
-                    if 'items' in result:
-                        original_count = len(result['items'])
-                        result['items'] = result['items'][:depth]
-                        result['items_count'] = len(result['items'])
-                        logger.info(f"✂️ Limited items from {original_count} to {len(result['items'])}")
+                original_count = len(task_data['result'])
+                task_data['result'] = task_data['result'][:depth]
+                logger.info(f"✂️ Limited results from {original_count} to {len(task_data['result'])}")
         
         # Return standardized response
         return dataforseo_service.standardize_response(processed_results, "serp_analysis")
@@ -381,10 +377,10 @@ async def analyze_keywords_search_volume(
             credits_used=task_result.get('cost', len(keywords)),
             execution_data={
                 "input_data": {
-                    "keywords": keywords,
-                    "location_code": location_code,
-                    "language_code": language_code
-                },
+                "keywords": keywords,
+                "location_code": location_code,
+                "language_code": language_code
+            },
                 "output_data": task_result,
                 "user_id": current_user.id
             }
@@ -436,10 +432,10 @@ async def get_keywords_for_site(
             credits_used=task_result.get('cost', 5),
             execution_data={
                 "input_data": {
-                    "target_site": target_site,
-                    "location_code": location_code,
-                    "language_code": language_code
-                },
+                "target_site": target_site,
+                "location_code": location_code,
+                "language_code": language_code
+            },
                 "output_data": task_result,
                 "user_id": current_user.id
             }
@@ -483,7 +479,7 @@ async def analyze_competitors_domain(
                 "domain": domain,
                 "location_code": location_code,
                 "language_code": language_code
-                },
+            },
                 "output_data": task_result,
                 "user_id": current_user.id
             },
@@ -526,7 +522,7 @@ async def analyze_content(
                 "input_data": {
                 "content": content[:500],  # Truncate for storage
                 "keyword": keyword
-                },
+            },
                 "output_data": task_result,
                 "user_id": current_user.id
             },
@@ -572,7 +568,7 @@ async def get_serp_screenshot(
                 "keyword": keyword,
                 "location_code": location_code,
                 "language_code": language_code
-                },
+            },
                 "output_data": task_result,
                 "user_id": current_user.id
             },

@@ -203,39 +203,93 @@ class DataForSEOService:
         
         return standardized
     
-    def _standardize_serp_data(self, serp_data: Dict) -> Dict:
+    def _standardize_serp_data(self, serp_data) -> Dict:
         """Standardize SERP data format"""
         if not serp_data:
             return {}
+        
+        # Handle case where serp_data is a list (actual DataForSEO format)
+        if isinstance(serp_data, list):
+            if len(serp_data) == 0:
+                return {}
             
-        return {
-            'keyword': serp_data.get('keyword'),
-            'location': serp_data.get('location_code'),
-            'language': serp_data.get('language_code'),
-            'total_results': serp_data.get('total_count', 0),
-            'organic_results': [
-                {
-                    'position': item.get('rank_group', 0),
-                    'title': item.get('title', ''),
-                    'url': item.get('url', ''),
-                    'description': item.get('description', ''),
-                    'domain': item.get('domain', ''),
-                    'breadcrumb': item.get('breadcrumb', '')
-                }
-                for item in serp_data.get('items', [])
-                if item.get('type') == 'organic'
-            ],
-            'featured_snippets': [
-                {
-                    'type': item.get('type', ''),
-                    'title': item.get('title', ''),
-                    'description': item.get('description', ''),
-                    'url': item.get('url', '')
-                }
-                for item in serp_data.get('items', [])
-                if item.get('type') in ['featured_snippet', 'answer_box', 'knowledge_graph']
-            ]
-        }
+            # Get metadata from first item
+            first_item = serp_data[0] if serp_data else {}
+            
+            return {
+                'keyword': first_item.get('keyword'),
+                'location': first_item.get('location_code'),
+                'language': first_item.get('language_code'),
+                'se_domain': first_item.get('se_domain'),
+                'total_results': len(serp_data),
+                'organic_results': [
+                    {
+                        'position': item.get('rank_group', idx + 1),
+                        'title': item.get('title', ''),
+                        'url': item.get('url', ''),
+                        'description': item.get('description', ''),
+                        'domain': item.get('domain', ''),
+                        'breadcrumb': item.get('breadcrumb', ''),
+                        'type': item.get('type', '')
+                    }
+                    for idx, item in enumerate(serp_data)
+                    if isinstance(item, dict) and item.get('type') == 'organic'
+                ],
+                'all_results': [
+                    {
+                        'position': item.get('rank_group', idx + 1),
+                        'title': item.get('title', ''),
+                        'url': item.get('url', ''),
+                        'description': item.get('description', ''),
+                        'domain': item.get('domain', ''),
+                        'type': item.get('type', ''),
+                        'breadcrumb': item.get('breadcrumb', '')
+                    }
+                    for idx, item in enumerate(serp_data)
+                    if isinstance(item, dict)
+                ],
+                'featured_snippets': [
+                    {
+                        'type': item.get('type', ''),
+                        'title': item.get('title', ''),
+                        'description': item.get('description', ''),
+                        'url': item.get('url', '')
+                    }
+                    for item in serp_data
+                    if isinstance(item, dict) and item.get('type') in ['featured_snippet', 'answer_box', 'knowledge_graph']
+                ]
+            }
+        
+        # Handle legacy format (if data comes in as a dict with 'items')
+        else:
+            return {
+                'keyword': serp_data.get('keyword'),
+                'location': serp_data.get('location_code'),
+                'language': serp_data.get('language_code'),
+                'total_results': serp_data.get('total_count', 0),
+                'organic_results': [
+                    {
+                        'position': item.get('rank_group', 0),
+                        'title': item.get('title', ''),
+                        'url': item.get('url', ''),
+                        'description': item.get('description', ''),
+                        'domain': item.get('domain', ''),
+                        'breadcrumb': item.get('breadcrumb', '')
+                    }
+                    for item in serp_data.get('items', [])
+                    if item.get('type') == 'organic'
+                ],
+                'featured_snippets': [
+                    {
+                        'type': item.get('type', ''),
+                        'title': item.get('title', ''),
+                        'description': item.get('description', ''),
+                        'url': item.get('url', '')
+                    }
+                    for item in serp_data.get('items', [])
+                    if item.get('type') in ['featured_snippet', 'answer_box', 'knowledge_graph']
+                ]
+            }
     
     def _standardize_keyword_data(self, keyword_data: Dict) -> Dict:
         """Standardize keyword data format"""
