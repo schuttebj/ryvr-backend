@@ -201,9 +201,14 @@ async def get_serp_results(
         # Get raw results from DataForSEO
         raw_results = dataforseo_service.get_serp_results(task_id)
         
+        # Log the raw response for debugging
+        logger.info(f"🔍 DataForSEO raw response type: {type(raw_results)}")
+        logger.info(f"🔍 DataForSEO raw response: {str(raw_results)[:500]}...")  # First 500 chars
+        
         # Handle case where DataForSEO returns a list instead of dict
         if isinstance(raw_results, list):
             if len(raw_results) > 0 and isinstance(raw_results[0], dict):
+                logger.info(f"🔄 Converting list response to dict using first element")
                 raw_results = raw_results[0]
             else:
                 logger.error(f"❌ Unexpected DataForSEO response format: {type(raw_results)}")
@@ -223,40 +228,63 @@ async def get_serp_results(
         
         # Process and filter results
         processed_results = raw_results
+        
+        # Add comprehensive logging for debugging
+        logger.info(f"🔍 Raw results keys: {list(raw_results.keys()) if isinstance(raw_results, dict) else 'Not a dict'}")
+        
         if 'tasks' in raw_results and raw_results['tasks']:
+            logger.info(f"🔍 Tasks found: {len(raw_results['tasks'])}")
             task_data = raw_results['tasks'][0]
+            logger.info(f"🔍 Task data type: {type(task_data)}")
+            logger.info(f"🔍 Task data keys: {list(task_data.keys()) if isinstance(task_data, dict) else 'Not a dict'}")
             
-            # Apply organic_only filter if requested
-            if organic_only and 'result' in task_data and task_data['result']:
-                logger.info(f"🔍 Applying organic_only filter with depth={depth}")
+            if 'result' in task_data:
+                logger.info(f"🔍 Result type: {type(task_data['result'])}")
+                if isinstance(task_data['result'], list):
+                    logger.info(f"🔍 Result length: {len(task_data['result'])}")
+                    if len(task_data['result']) > 0:
+                        logger.info(f"🔍 First result type: {type(task_data['result'][0])}")
+                        if isinstance(task_data['result'][0], dict):
+                            logger.info(f"🔍 First result keys: {list(task_data['result'][0].keys())}")
+        else:
+            logger.info(f"🔍 No tasks found in raw_results")
+            return dataforseo_service.standardize_response(processed_results, "serp_analysis")
+            
+        # Continue with task processing
+        task_data = raw_results['tasks'][0]
+        
+        # Apply organic_only filter if requested
+        if organic_only and 'result' in task_data and task_data['result']:
+            logger.info(f"🔍 Applying organic_only filter with depth={depth}")
+            for result in task_data['result']:
+                if 'items' in result:
+                    # Filter to only organic results with domains
+                    original_items = result['items']
+                    logger.info(f"📊 Original items count: {len(original_items)}")
+                    
+                    organic_items = [
+                        item for item in original_items
+                        if (isinstance(item, dict) and 
+                            item.get('type') == 'organic' and 
+                            item.get('domain') and 
+                            item.get('url'))
+                    ]
+                    logger.info(f"🌱 Organic items count: {len(organic_items)}")
+                    
+                    # Limit to requested depth
+                    result['items'] = organic_items[:depth]
+                    result['items_count'] = len(result['items'])
+                    logger.info(f"✂️ Final items count after depth limit: {len(result['items'])}")
+        else:
+            # Apply depth limit even if not filtering to organic only
+            if 'result' in task_data and task_data['result']:
+                logger.info(f"🔍 Applying depth limit={depth} (no organic filter)")
                 for result in task_data['result']:
                     if 'items' in result:
-                        # Filter to only organic results with domains
-                        original_items = result['items']
-                        logger.info(f"📊 Original items count: {len(original_items)}")
-                        
-                        organic_items = [
-                            item for item in original_items
-                            if (item.get('type') == 'organic' and 
-                                item.get('domain') and 
-                                item.get('url'))
-                        ]
-                        logger.info(f"🌱 Organic items count: {len(organic_items)}")
-                        
-                        # Limit to requested depth
-                        result['items'] = organic_items[:depth]
+                        original_count = len(result['items'])
+                        result['items'] = result['items'][:depth]
                         result['items_count'] = len(result['items'])
-                        logger.info(f"✂️ Final items count after depth limit: {len(result['items'])}")
-            else:
-                # Apply depth limit even if not filtering to organic only
-                if 'result' in task_data and task_data['result']:
-                    logger.info(f"🔍 Applying depth limit={depth} (no organic filter)")
-                    for result in task_data['result']:
-                        if 'items' in result:
-                            original_count = len(result['items'])
-                            result['items'] = result['items'][:depth]
-                            result['items_count'] = len(result['items'])
-                            logger.info(f"✂️ Limited items from {original_count} to {len(result['items'])}")
+                        logger.info(f"✂️ Limited items from {original_count} to {len(result['items'])}")
         
         # Return standardized response
         return dataforseo_service.standardize_response(processed_results, "serp_analysis")
