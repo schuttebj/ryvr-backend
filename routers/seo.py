@@ -282,8 +282,18 @@ async def get_serp_results(
                 task_data['result'] = task_data['result'][:depth]
                 logger.info(f"✂️ Limited results from {original_count} to {len(task_data['result'])}")
         
+        # Log what we're passing to standardization
+        logger.info(f"🔄 Passing to standardization: task_data result length: {len(task_data.get('result', []))}")
+        if task_data.get('result') and len(task_data.get('result', [])) > 0:
+            first_item = task_data['result'][0] if isinstance(task_data['result'], list) else None
+            if first_item:
+                logger.info(f"🔄 First result item keys: {list(first_item.keys()) if isinstance(first_item, dict) else 'Not a dict'}")
+        
         # Return standardized response
-        return dataforseo_service.standardize_response(processed_results, "serp_analysis")
+        standardized_response = dataforseo_service.standardize_response(processed_results, "serp_analysis")
+        logger.info(f"🔄 Standardized response data keys: {list(standardized_response.get('data', {}).keys())}")
+        
+        return standardized_response
         
     except Exception as e:
         logger.error(f"SERP results error: {e}")

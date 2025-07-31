@@ -193,13 +193,28 @@ class DataForSEOService:
         if raw_response.get('tasks'):
             task_data = raw_response['tasks'][0]
             standardized['task_id'] = task_data.get('id')
-            standardized['data'] = task_data.get('result', {})
             
-            # Add task-specific standardization
+            # Always preserve the raw result data
+            raw_result = task_data.get('result', {})
+            
+            # Add task-specific standardization while preserving raw data
             if task_type == 'serp_analysis':
-                standardized['data'] = self._standardize_serp_data(task_data.get('result', {}))
+                processed_data = self._standardize_serp_data(raw_result)
+                # Combine processed data with raw results for comprehensive access
+                standardized['data'] = {
+                    **processed_data,  # Standardized fields like keyword, location, etc.
+                    'raw_results': raw_result,  # Original DataForSEO results
+                    'all_results': raw_result if isinstance(raw_result, list) else [],  # For frontend compatibility
+                    'organic_results': [
+                        item for item in (raw_result if isinstance(raw_result, list) else [])
+                        if isinstance(item, dict) and item.get('type') == 'organic'
+                    ]
+                }
             elif task_type == 'keyword_volume':
-                standardized['data'] = self._standardize_keyword_data(task_data.get('result', {}))
+                standardized['data'] = self._standardize_keyword_data(raw_result)
+            else:
+                # For other task types, just use the raw result
+                standardized['data'] = raw_result
         
         return standardized
     
