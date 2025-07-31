@@ -201,8 +201,16 @@ async def get_serp_results(
         # Get raw results from DataForSEO
         raw_results = dataforseo_service.get_serp_results(task_id)
         
+        # Handle case where DataForSEO returns a list instead of dict
+        if isinstance(raw_results, list):
+            if len(raw_results) > 0 and isinstance(raw_results[0], dict):
+                raw_results = raw_results[0]
+            else:
+                logger.error(f"❌ Unexpected DataForSEO response format: {type(raw_results)}")
+                raise HTTPException(status_code=500, detail="Invalid response format from DataForSEO")
+        
         # Check if task is still processing
-        if raw_results.get('status_code') != 20000:
+        if not isinstance(raw_results, dict) or raw_results.get('status_code') != 20000:
             return {
                 "provider": "DataForSEO",
                 "task_type": "serp_analysis",
@@ -267,7 +275,19 @@ async def get_serp_task_status(
         # Get task status from DataForSEO
         task_status = dataforseo_service.get_serp_results(task_id)
         
+        # Handle case where DataForSEO returns a list instead of dict
+        if isinstance(task_status, list):
+            if len(task_status) > 0 and isinstance(task_status[0], dict):
+                task_status = task_status[0]
+            else:
+                logger.error(f"❌ Unexpected DataForSEO status response format: {type(task_status)}")
+                raise HTTPException(status_code=500, detail="Invalid status response format from DataForSEO")
+        
         # Determine status based on response
+        if not isinstance(task_status, dict):
+            logger.error(f"❌ Task status is not a dictionary: {type(task_status)}")
+            raise HTTPException(status_code=500, detail="Invalid task status format")
+            
         if task_status.get('status_code') == 20000:
             status = "completed"
             message = "Task completed successfully"
