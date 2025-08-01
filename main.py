@@ -36,7 +36,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
-app.include_router(clients.router, prefix="/api/v1/clients", tags=["clients"])
+app.include_router(clients.router)
 app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["integrations"])
 app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["workflows"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])

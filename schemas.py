@@ -45,6 +45,12 @@ class ClientBase(BaseModel):
     name: str
     description: Optional[str] = None
     contact_email: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    industry: Optional[str] = None
+    status: Optional[str] = "potential"
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
 
 class ClientCreate(ClientBase):
     credits_balance: int = 1000  # Default starting credits
@@ -53,6 +59,14 @@ class ClientUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     contact_email: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    industry: Optional[str] = None
+    status: Optional[str] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+    questionnaire_responses: Optional[dict] = None
+    business_profile: Optional[dict] = None
     credits_balance: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -62,11 +76,20 @@ class Client(ClientBase):
     credits_used: int
     is_active: bool
     owner_id: int
+    questionnaire_responses: Optional[dict] = None
+    business_profile: Optional[dict] = None
+    profile_generated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
+
+# Business Profile Generation Request
+class BusinessProfileGenerationRequest(BaseModel):
+    client_id: int
+    ai_model: Optional[str] = "gpt-4o-mini"
+    include_recommendations: Optional[bool] = True
 
 # Website schemas
 class WebsiteBase(BaseModel):

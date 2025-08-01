@@ -27,6 +27,15 @@ class Client(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     contact_email = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    company = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    status = Column(String, default="potential")  # potential, active, inactive
+    tags = Column(JSON, nullable=True)  # Array of tags
+    notes = Column(Text, nullable=True)
+    questionnaire_responses = Column(JSON, nullable=True)  # Store questionnaire responses
+    business_profile = Column(JSON, nullable=True)  # Store AI-generated business profile
+    profile_generated_at = Column(DateTime(timezone=True), nullable=True)
     credits_balance = Column(Integer, default=0)
     credits_used = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
