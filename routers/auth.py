@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
-from typing import List
+from datetime import timedelta, datetime
+from typing import List, Optional
 
 from database import get_db, engine, Base
 from auth import (
@@ -10,20 +10,26 @@ from auth import (
     create_access_token, 
     get_current_active_user, 
     get_current_admin_user,
+    get_current_agency_user,
     create_user,
-    get_password_hash
+    get_password_hash,
+    get_user_agencies,
+    get_user_businesses,
+    verify_business_access,
+    verify_agency_access,
+    create_login_token
 )
 from config import settings
 import models, schemas
 
 router = APIRouter()
 
-@router.post("/login", response_model=schemas.Token)
+@router.post("/login", response_model=schemas.LoginResponse)
 async def login_for_access_token(
     form_data: schemas.LoginRequest,
     db: Session = Depends(get_db)
 ):
-    """Login endpoint to get access token."""
+    """Enhanced login endpoint with user context."""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -31,11 +37,25 @@ async def login_for_access_token(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    
+    # Get user's agencies and businesses
+    agencies = get_user_agencies(db, user)
+    businesses = get_user_businesses(db, user)
+    
+    # Default context selection
+    agency_id = agencies[0].id if agencies else None
+    business_id = businesses[0].id if businesses else None
+    
+    # Create token with context
+    access_token = create_login_token(user, agency_id, business_id)
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user,
+        "agency_id": agency_id,
+        "business_id": business_id
+    }
 
 @router.post("/register", response_model=schemas.User)
 async def register_user(
@@ -201,4 +221,190 @@ async def init_database(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to initialize database: {str(e)}"
-        ) 
+        )
+
+# =============================================================================
+# MULTI-TENANT CONTEXT ENDPOINTS (NEW)
+# =============================================================================
+
+@router.get("/context", response_model=schemas.BusinessContext)
+async def get_user_context(
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user's business and agency context."""
+    agencies = get_user_agencies(db, current_user)
+    businesses = get_user_businesses(db, current_user)
+    
+    if not agencies:
+        raise HTTPException(
+            status_code=404,
+            detail="No agencies found for user"
+        )
+    
+    # Return first available context
+    agency = agencies[0]
+    business = businesses[0] if businesses else None
+    
+    if not business:
+        raise HTTPException(
+            status_code=404,
+            detail="No businesses found for user"
+        )
+    
+    return {
+        "business_id": business.id,
+        "business_name": business.name,
+        "agency_id": agency.id,
+        "agency_name": agency.name,
+        "user_role": current_user.role,
+        "permissions": {}  # TODO: Add actual permissions
+    }
+
+@router.post("/switch-business", response_model=schemas.LoginResponse)
+async def switch_business_context(
+    request: schemas.BusinessSwitchRequest,
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Switch to a different business context."""
+    # Verify user has access to this business
+    if not verify_business_access(db, current_user, request.business_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this business is not allowed"
+        )
+    
+    # Get business and agency
+    business = db.query(models.Business).filter(
+        models.Business.id == request.business_id
+    ).first()
+    
+    if not business:
+        raise HTTPException(
+            status_code=404,
+            detail="Business not found"
+        )
+    
+    # Create new token with updated context
+    access_token = create_login_token(current_user, business.agency_id, business.id)
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": current_user,
+        "agency_id": business.agency_id,
+        "business_id": business.id
+    }
+
+@router.get("/agencies", response_model=List[schemas.Agency])
+async def get_user_agencies_endpoint(
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get all agencies accessible by current user."""
+    agencies = get_user_agencies(db, current_user)
+    return agencies
+
+@router.get("/businesses", response_model=List[schemas.Business])
+async def get_user_businesses_endpoint(
+    agency_id: Optional[int] = None,
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get all businesses accessible by current user."""
+    businesses = get_user_businesses(db, current_user, agency_id)
+    return businesses
+
+@router.post("/agency/register", response_model=schemas.Agency)
+async def register_agency(
+    agency_data: schemas.AgencyCreate,
+    db: Session = Depends(get_db)
+):
+    """Register a new agency (open registration)."""
+    # Check if slug already exists
+    existing_agency = db.query(models.Agency).filter(
+        models.Agency.slug == agency_data.slug
+    ).first()
+    
+    if existing_agency:
+        raise HTTPException(
+            status_code=400,
+            detail="Agency slug already exists"
+        )
+    
+    # Create agency user first
+    agency_user = models.User(
+        email=agency_data.name.lower().replace(" ", "") + "@temp.com",  # Temporary email
+        username=agency_data.slug + "_owner",
+        hashed_password=get_password_hash("temp_password"),  # Will be updated
+        role="agency",
+        first_name="Agency",
+        last_name="Owner",
+        is_active=True
+    )
+    
+    db.add(agency_user)
+    db.commit()
+    db.refresh(agency_user)
+    
+    # Create agency
+    agency = models.Agency(
+        name=agency_data.name,
+        slug=agency_data.slug,
+        website=agency_data.website,
+        phone=agency_data.phone,
+        address=agency_data.address,
+        branding_config=agency_data.branding_config or {},
+        settings=agency_data.settings or {},
+        created_by=agency_user.id,
+        is_active=True
+    )
+    
+    db.add(agency)
+    db.commit()
+    db.refresh(agency)
+    
+    # Link user to agency as owner
+    agency_membership = models.AgencyUser(
+        agency_id=agency.id,
+        user_id=agency_user.id,
+        role="owner",
+        joined_at=datetime.utcnow(),
+        is_active=True
+    )
+    
+    db.add(agency_membership)
+    
+    # Get starter tier for trial
+    starter_tier = db.query(models.SubscriptionTier).filter(
+        models.SubscriptionTier.slug == "starter"
+    ).first()
+    
+    if starter_tier:
+        # Create trial subscription
+        trial_subscription = models.UserSubscription(
+            user_id=agency_user.id,
+            tier_id=starter_tier.id,
+            status="trial",
+            trial_starts_at=datetime.utcnow(),
+            trial_ends_at=datetime.utcnow() + timedelta(days=14)
+        )
+        
+        db.add(trial_subscription)
+        
+        # Create credit pool with trial credits
+        credit_pool = models.CreditPool(
+            owner_id=agency.id,
+            owner_type="agency",
+            balance=5000,  # Trial credits
+            total_purchased=5000,
+            overage_threshold=100
+        )
+        
+        db.add(credit_pool)
+    
+    db.commit()
+    db.refresh(agency)
+    
+    return agency 

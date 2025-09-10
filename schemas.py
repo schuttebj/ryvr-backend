@@ -1,211 +1,450 @@
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, EmailStr, validator
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
+from decimal import Decimal
 
-# Base schemas
+# =============================================================================
+# CORE USER SCHEMAS
+# =============================================================================
+
 class UserBase(BaseModel):
-    email: str
+    email: EmailStr
     username: str
-    full_name: Optional[str] = None
+    role: Literal['admin', 'agency', 'individual']
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_active: bool = True
-    is_admin: bool = False
 
 class UserCreate(UserBase):
     password: str
 
 class UserUpdate(BaseModel):
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     username: Optional[str] = None
-    full_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_active: Optional[bool] = None
-    is_admin: Optional[bool] = None
+    email_verified: Optional[bool] = None
 
 class User(UserBase):
     id: int
+    email_verified: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
 
-# Authentication schemas
+# =============================================================================
+# AUTHENTICATION SCHEMAS
+# =============================================================================
+
 class Token(BaseModel):
     access_token: str
     token_type: str
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+    role: Optional[str] = None
+    agency_id: Optional[int] = None
+    business_id: Optional[int] = None
 
 class LoginRequest(BaseModel):
     username: str
     password: str
 
-# Client schemas
-class ClientBase(BaseModel):
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: User
+    agency_id: Optional[int] = None
+    business_id: Optional[int] = None
+
+# =============================================================================
+# AGENCY SCHEMAS
+# =============================================================================
+
+class AgencyBase(BaseModel):
     name: str
-    description: Optional[str] = None
-    contact_email: Optional[str] = None
+    slug: str
+    website: Optional[str] = None
     phone: Optional[str] = None
-    company: Optional[str] = None
-    industry: Optional[str] = None
-    status: Optional[str] = "potential"
-    tags: Optional[List[str]] = None
-    notes: Optional[str] = None
+    address: Optional[str] = None
+    branding_config: Optional[Dict[str, Any]] = {}
+    settings: Optional[Dict[str, Any]] = {}
 
-class ClientCreate(ClientBase):
-    credits_balance: int = 1000  # Default starting credits
+class AgencyCreate(AgencyBase):
+    pass
 
-class ClientUpdate(BaseModel):
+class AgencyUpdate(BaseModel):
     name: Optional[str] = None
-    description: Optional[str] = None
-    contact_email: Optional[str] = None
+    website: Optional[str] = None
     phone: Optional[str] = None
-    company: Optional[str] = None
-    industry: Optional[str] = None
-    status: Optional[str] = None
-    tags: Optional[List[str]] = None
-    notes: Optional[str] = None
-    questionnaire_responses: Optional[dict] = None
-    business_profile: Optional[dict] = None
-    credits_balance: Optional[int] = None
+    address: Optional[str] = None
+    branding_config: Optional[Dict[str, Any]] = None
+    settings: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
 
-class Client(ClientBase):
+class Agency(AgencyBase):
     id: int
-    credits_balance: int
-    credits_used: int
+    onboarding_data: Dict[str, Any]
     is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class AgencyUserBase(BaseModel):
+    role: Literal['owner', 'manager', 'viewer']
+    permissions: Optional[Dict[str, Any]] = {}
+
+class AgencyUserCreate(AgencyUserBase):
+    user_id: int
+    agency_id: int
+
+class AgencyUser(AgencyUserBase):
+    id: int
+    agency_id: int
+    user_id: int
+    invited_by: Optional[int] = None
+    invited_at: Optional[datetime] = None
+    joined_at: Optional[datetime] = None
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# BUSINESS SCHEMAS
+# =============================================================================
+
+class BusinessBase(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    industry: Optional[str] = None
+    website: Optional[str] = None
+    description: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    contact_address: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = {}
+    branding_config: Optional[Dict[str, Any]] = {}
+
+class BusinessCreate(BusinessBase):
+    agency_id: int
+
+class BusinessUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    industry: Optional[str] = None
+    website: Optional[str] = None
+    description: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    contact_address: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+    branding_config: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+class Business(BusinessBase):
+    id: int
+    agency_id: int
+    onboarding_data: Dict[str, Any]
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class BusinessUserBase(BaseModel):
+    role: Literal['owner', 'manager', 'viewer']
+    permissions: Optional[Dict[str, Any]] = {}
+
+class BusinessUserCreate(BusinessUserBase):
+    user_id: int
+    business_id: int
+
+class BusinessUser(BusinessUserBase):
+    id: int
+    business_id: int
+    user_id: int
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# ONBOARDING SCHEMAS
+# =============================================================================
+
+class OnboardingQuestionBase(BaseModel):
+    section: str
+    question_key: str
+    question_text: str
+    question_type: Literal['text', 'textarea', 'select', 'multiselect', 'file']
+    options: Optional[List[str]] = []
+    is_required: bool = False
+    placeholder: Optional[str] = None
+    help_text: Optional[str] = None
+    sort_order: int = 0
+
+class OnboardingQuestionCreate(OnboardingQuestionBase):
+    template_id: int
+
+class OnboardingQuestion(OnboardingQuestionBase):
+    id: int
+    template_id: int
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class OnboardingTemplateBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    target_type: Literal['agency', 'business']
+    is_default: bool = False
+
+class OnboardingTemplateCreate(OnboardingTemplateBase):
+    questions: Optional[List[OnboardingQuestionCreate]] = []
+
+class OnboardingTemplate(OnboardingTemplateBase):
+    id: int
+    is_active: bool
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    questions: Optional[List[OnboardingQuestion]] = []
+    
+    class Config:
+        from_attributes = True
+
+class OnboardingResponseBase(BaseModel):
+    question_id: int
+    response_value: Optional[str] = None
+    response_data: Optional[Dict[str, Any]] = {}
+
+class OnboardingResponseCreate(OnboardingResponseBase):
+    template_id: int
+    respondent_id: int
+    respondent_type: Literal['agency', 'business']
+
+class OnboardingResponse(OnboardingResponseBase):
+    id: int
+    template_id: int
+    respondent_id: int
+    respondent_type: str
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# SUBSCRIPTION & CREDIT SCHEMAS
+# =============================================================================
+
+class SubscriptionTierBase(BaseModel):
+    name: str
+    slug: str
+    description: Optional[str] = None
+    price_monthly: Decimal
+    price_yearly: Optional[Decimal] = None
+    credits_included: int
+    client_limit: int
+    user_limit: int
+    features: Optional[List[str]] = []
+    workflow_access: Optional[List[str]] = []
+    integration_limits: Optional[Dict[str, Any]] = {}
+    sort_order: int = 0
+
+class SubscriptionTierCreate(SubscriptionTierBase):
+    pass
+
+class SubscriptionTierUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price_monthly: Optional[Decimal] = None
+    price_yearly: Optional[Decimal] = None
+    credits_included: Optional[int] = None
+    client_limit: Optional[int] = None
+    user_limit: Optional[int] = None
+    features: Optional[List[str]] = None
+    workflow_access: Optional[List[str]] = None
+    integration_limits: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+class SubscriptionTier(SubscriptionTierBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class UserSubscriptionBase(BaseModel):
+    tier_id: int
+    status: Literal['trial', 'active', 'cancelled', 'expired']
+
+class UserSubscriptionCreate(UserSubscriptionBase):
+    user_id: int
+    trial_starts_at: Optional[datetime] = None
+    trial_ends_at: Optional[datetime] = None
+
+class UserSubscription(UserSubscriptionBase):
+    id: int
+    user_id: int
+    trial_starts_at: Optional[datetime] = None
+    trial_ends_at: Optional[datetime] = None
+    current_period_start: Optional[datetime] = None
+    current_period_end: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    stripe_subscription_id: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    tier: Optional[SubscriptionTier] = None
+    
+    class Config:
+        from_attributes = True
+
+class CreditPoolBase(BaseModel):
     owner_id: int
-    questionnaire_responses: Optional[dict] = None
-    business_profile: Optional[dict] = None
-    profile_generated_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
+    owner_type: Literal['user', 'agency']
+    balance: int = 0
+    overage_threshold: int = 100
 
-# Business Profile Generation Request
-class BusinessProfileGenerationRequest(BaseModel):
-    client_id: int
-    ai_model: Optional[str] = "gpt-4o-mini"
-    include_recommendations: Optional[bool] = True
+class CreditPoolCreate(CreditPoolBase):
+    pass
 
-# Website schemas
-class WebsiteBase(BaseModel):
-    url: str
-    name: str
-    description: Optional[str] = None
-
-class WebsiteCreate(WebsiteBase):
-    client_id: int
-
-class WebsiteUpdate(BaseModel):
-    url: Optional[str] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-
-class Website(WebsiteBase):
+class CreditPool(CreditPoolBase):
     id: int
-    client_id: int
-    is_active: bool
+    total_purchased: int
+    total_used: int
+    is_suspended: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
 
-# Integration schemas
-class IntegrationBase(BaseModel):
-    name: str
-    provider: str
-    is_active: bool = True
-    is_mock: bool = False
+class CreditTransactionBase(BaseModel):
+    pool_id: int
+    transaction_type: Literal['purchase', 'usage', 'refund', 'adjustment']
+    amount: int
+    description: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = {}
 
-class IntegrationCreate(IntegrationBase):
-    config: Optional[Dict[str, Any]] = None
+class CreditTransactionCreate(CreditTransactionBase):
+    business_id: Optional[int] = None
+    workflow_execution_id: Optional[int] = None
 
-class IntegrationUpdate(BaseModel):
-    name: Optional[str] = None
-    provider: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    is_active: Optional[bool] = None
-    is_mock: Optional[bool] = None
-
-class Integration(IntegrationBase):
+class CreditTransaction(CreditTransactionBase):
     id: int
-    config: Optional[Dict[str, Any]] = None
+    business_id: Optional[int] = None
+    workflow_execution_id: Optional[int] = None
+    balance_after: int
+    created_by: Optional[int] = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
 
-# Task Template schemas
-class TaskTemplateBase(BaseModel):
+# =============================================================================
+# WORKFLOW SCHEMAS
+# =============================================================================
+
+class WorkflowTemplateBase(BaseModel):
     name: str
     description: Optional[str] = None
     category: str
-    credit_cost: int = 1
+    tags: Optional[List[str]] = []
+    config: Dict[str, Any]
+    credit_cost: int = 0
+    estimated_duration: Optional[int] = None
+    tier_access: Optional[List[str]] = []
+    version: str = '1.0'
+    icon: Optional[str] = None
 
-class TaskTemplateCreate(TaskTemplateBase):
-    integration_id: Optional[int] = None
-    config_schema: Optional[Dict[str, Any]] = None
+class WorkflowTemplateCreate(WorkflowTemplateBase):
+    status: Literal['draft', 'testing', 'beta', 'published', 'deprecated'] = 'draft'
+    beta_users: Optional[List[int]] = []
 
-class TaskTemplate(TaskTemplateBase):
-    id: int
-    integration_id: Optional[int] = None
-    config_schema: Optional[Dict[str, Any]] = None
-    is_active: bool
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-# Workflow schemas
-class WorkflowBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-    is_scheduled: bool = False
-
-class WorkflowCreate(WorkflowBase):
-    client_id: int
-    workflow_data: Optional[Dict[str, Any]] = None
-    schedule_config: Optional[Dict[str, Any]] = None
-
-class WorkflowUpdate(BaseModel):
+class WorkflowTemplateUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    workflow_data: Optional[Dict[str, Any]] = None
-    is_active: Optional[bool] = None
-    is_scheduled: Optional[bool] = None
-    schedule_config: Optional[Dict[str, Any]] = None
+    category: Optional[str] = None
+    tags: Optional[List[str]] = None
+    config: Optional[Dict[str, Any]] = None
+    credit_cost: Optional[int] = None
+    estimated_duration: Optional[int] = None
+    tier_access: Optional[List[str]] = None
+    status: Optional[Literal['draft', 'testing', 'beta', 'published', 'deprecated']] = None
+    beta_users: Optional[List[int]] = None
+    version: Optional[str] = None
+    icon: Optional[str] = None
 
-class Workflow(WorkflowBase):
+class WorkflowTemplate(WorkflowTemplateBase):
     id: int
-    client_id: int
-    workflow_data: Optional[Dict[str, Any]] = None
-    is_active: bool
-    schedule_config: Optional[Dict[str, Any]] = None
+    status: str
+    beta_users: List[int]
+    created_by: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
 
-# Workflow Execution schemas
+class WorkflowInstanceBase(BaseModel):
+    template_id: int
+    business_id: int
+    name: Optional[str] = None
+    custom_config: Optional[Dict[str, Any]] = {}
+
+class WorkflowInstanceCreate(WorkflowInstanceBase):
+    pass
+
+class WorkflowInstanceUpdate(BaseModel):
+    name: Optional[str] = None
+    custom_config: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+class WorkflowInstance(WorkflowInstanceBase):
+    id: int
+    is_active: bool
+    last_executed_at: Optional[datetime] = None
+    execution_count: int
+    success_count: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    template: Optional[WorkflowTemplate] = None
+    
+    class Config:
+        from_attributes = True
+
 class WorkflowExecutionBase(BaseModel):
-    workflow_id: int
-    status: str = "pending"
+    instance_id: int
+    business_id: int
 
 class WorkflowExecutionCreate(WorkflowExecutionBase):
     pass
 
 class WorkflowExecution(WorkflowExecutionBase):
     id: int
+    status: Literal['pending', 'running', 'completed', 'failed']
     credits_used: int
-    execution_data: Optional[Dict[str, Any]] = None
+    execution_data: Dict[str, Any]
     error_message: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
@@ -213,25 +452,106 @@ class WorkflowExecution(WorkflowExecutionBase):
     class Config:
         from_attributes = True
 
-# Credit Transaction schemas
-class CreditTransactionBase(BaseModel):
-    client_id: int
-    transaction_type: str
-    amount: int
-    description: Optional[str] = None
+# =============================================================================
+# INTEGRATION SCHEMAS
+# =============================================================================
 
-class CreditTransactionCreate(CreditTransactionBase):
-    workflow_execution_id: Optional[int] = None
+class IntegrationBase(BaseModel):
+    name: str
+    provider: str
+    integration_type: Literal['system', 'agency', 'business']
+    level: Literal['system', 'agency', 'business']
+    config_schema: Optional[Dict[str, Any]] = {}
+    is_mock: bool = False
 
-class CreditTransaction(CreditTransactionBase):
+class IntegrationCreate(IntegrationBase):
+    pass
+
+class IntegrationUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    config_schema: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+    is_mock: Optional[bool] = None
+
+class Integration(IntegrationBase):
     id: int
-    workflow_execution_id: Optional[int] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class AgencyIntegrationBase(BaseModel):
+    agency_id: int
+    integration_id: int
+    custom_config: Optional[Dict[str, Any]] = {}
+    credentials: Optional[Dict[str, Any]] = {}
+
+class AgencyIntegrationCreate(AgencyIntegrationBase):
+    pass
+
+class AgencyIntegration(AgencyIntegrationBase):
+    id: int
+    is_active: bool
+    last_tested: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    integration: Optional[Integration] = None
+    
+    class Config:
+        from_attributes = True
+
+class BusinessIntegrationBase(BaseModel):
+    business_id: int
+    integration_id: int
+    custom_config: Optional[Dict[str, Any]] = {}
+    credentials: Optional[Dict[str, Any]] = {}
+
+class BusinessIntegrationCreate(BusinessIntegrationBase):
+    pass
+
+class BusinessIntegration(BusinessIntegrationBase):
+    id: int
+    is_active: bool
+    last_tested: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    integration: Optional[Integration] = None
+    
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# ASSET & FILE SCHEMAS
+# =============================================================================
+
+class AssetUploadBase(BaseModel):
+    owner_id: int
+    owner_type: Literal['agency', 'business']
+    file_name: str
+    file_type: str
+    file_size: Optional[int] = None
+    asset_type: str  # logo, favicon, banner
+
+class AssetUploadCreate(AssetUploadBase):
+    file_path: str
+
+class AssetUpload(AssetUploadBase):
+    id: int
+    file_path: str
+    is_active: bool
+    uploaded_by: Optional[int] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
 
-# API Response schemas
+# =============================================================================
+# API RESPONSE SCHEMAS
+# =============================================================================
+
 class APIResponse(BaseModel):
     success: bool
     message: str
@@ -244,35 +564,50 @@ class PaginatedResponse(BaseModel):
     per_page: int
     pages: int
 
-# Dashboard analytics schemas
+# =============================================================================
+# DASHBOARD & ANALYTICS SCHEMAS
+# =============================================================================
+
 class DashboardStats(BaseModel):
-    total_clients: int
+    total_businesses: int
     active_workflows: int
     total_credits_used: int
     recent_executions: int
+    credit_balance: int
 
-class ClientStats(BaseModel):
-    client_id: int
-    credits_balance: int
+class BusinessStats(BaseModel):
+    business_id: int
     credits_used: int
     active_workflows: int
     total_executions: int
     success_rate: float
 
-# Data Processing schemas
-class DataFilterRequest(BaseModel):
-    source_data: List[Dict[str, Any]]
-    filter_config: Dict[str, Any]
+class AgencyStats(BaseModel):
+    agency_id: int
+    total_businesses: int
+    total_credits_used: int
+    active_workflows: int
+    success_rate: float
 
-class DataTransformRequest(BaseModel):
-    source_data: List[Dict[str, Any]]
-    operations: List[Dict[str, Any]]
+# =============================================================================
+# BUSINESS CONTEXT SCHEMAS
+# =============================================================================
 
-class DataValidationRequest(BaseModel):
-    source_data: List[Dict[str, Any]]
-    validation_rules: Dict[str, Any]
+class BusinessContext(BaseModel):
+    business_id: int
+    business_name: str
+    agency_id: int
+    agency_name: str
+    user_role: str
+    permissions: Dict[str, Any]
 
-# Node Execution schemas
+class BusinessSwitchRequest(BaseModel):
+    business_id: int
+
+# =============================================================================
+# NODE EXECUTION SCHEMAS (for workflow engine)
+# =============================================================================
+
 class NodeExecutionRequest(BaseModel):
     node_config: Dict[str, Any]
     input_data: Optional[Dict[str, Any]] = None
@@ -284,10 +619,3 @@ class NodeExecutionResponse(BaseModel):
     data: Dict[str, Any]
     execution_time_ms: int
     credits_used: int = 0
-
-class WorkflowNodeData(BaseModel):
-    node_id: str
-    node_type: str
-    execution_data: Dict[str, Any]
-    executed_at: datetime
-    status: str

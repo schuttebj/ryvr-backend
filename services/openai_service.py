@@ -14,10 +14,26 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 class OpenAIService:
-    """OpenAI API integration service"""
+    """Enhanced OpenAI API integration service with multi-tier support"""
     
-    def __init__(self):
-        self.client = OpenAI(api_key=settings.openai_api_key)
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, max_tokens: Optional[int] = None):
+        # Support both new multi-tier initialization and legacy initialization
+        if api_key:
+            # New multi-tier initialization
+            self.api_key = api_key
+            self.default_model = model or "gpt-4o-mini"
+            self.default_max_tokens = max_tokens or 2000
+        else:
+            # Legacy initialization (fallback to settings)
+            self.api_key = getattr(settings, 'openai_api_key', None)
+            self.default_model = getattr(settings, 'openai_model', "gpt-4o-mini")
+            self.default_max_tokens = getattr(settings, 'openai_max_tokens', 2000)
+        
+        # Initialize client if API key is available
+        if self.api_key:
+            self.client = OpenAI(api_key=self.api_key)
+        else:
+            self.client = None
         
     def generate_content(self, 
                         prompt: str, 
@@ -359,6 +375,153 @@ Return the results in JSON format with each email including:
                 })
         
         return results
+    
+    # =============================================================================
+    # NEW INTEGRATION FRAMEWORK METHODS
+    # =============================================================================
+    
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test OpenAI API connection"""
+        try:
+            if not self.client:
+                return {
+                    "success": False,
+                    "error": "OpenAI API key not configured"
+                }
+            
+            # Test with a simple completion
+            response = self.client.chat.completions.create(
+                model=self.default_model,
+                messages=[{"role": "user", "content": "Test connection"}],
+                max_tokens=5,
+                temperature=0
+            )
+            
+            if response and response.choices:
+                return {
+                    "success": True,
+                    "message": "OpenAI connection successful",
+                    "model": self.default_model,
+                    "response": response.choices[0].message.content
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "OpenAI API returned empty response"
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"OpenAI connection test failed: {str(e)}"
+            }
+    
+    async def generate_completion(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generate completion for integration framework"""
+        try:
+            if not self.client:
+                raise Exception("OpenAI API key not configured")
+            
+            # Use provided parameters or defaults
+            model = model or self.default_model
+            max_tokens = max_tokens or self.default_max_tokens
+            
+            messages = []
+            
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            
+            messages.append({"role": "user", "content": prompt})
+            
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            if response and response.choices:
+                return {
+                    "success": True,
+                    "content": response.choices[0].message.content,
+                    "model": model,
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    },
+                    "finish_reason": response.choices[0].finish_reason
+                }
+            else:
+                raise Exception("OpenAI API returned empty response")
+                
+        except Exception as e:
+            logger.error(f"OpenAI completion generation failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "prompt": prompt[:100] + "..." if len(prompt) > 100 else prompt
+            }
+    
+    async def analyze_content(
+        self,
+        content: str,
+        analysis_type: str = "general",
+        instructions: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze content using OpenAI for integration framework"""
+        try:
+            if not self.client:
+                raise Exception("OpenAI API key not configured")
+            
+            # Prepare analysis prompt based on type
+            if analysis_type == "seo":
+                system_prompt = "You are an SEO expert. Analyze the provided content for SEO optimization opportunities."
+                prompt = f"Analyze this content for SEO: {content}"
+            elif analysis_type == "sentiment":
+                system_prompt = "You are a sentiment analysis expert. Analyze the sentiment of the provided content."
+                prompt = f"Analyze the sentiment of this content: {content}"
+            elif analysis_type == "keywords":
+                system_prompt = "You are a keyword research expert. Extract and suggest relevant keywords from the provided content."
+                prompt = f"Extract keywords from this content: {content}"
+            else:
+                system_prompt = "You are a content analysis expert. Provide a comprehensive analysis of the provided content."
+                prompt = f"Analyze this content: {content}"
+            
+            # Add custom instructions if provided
+            if instructions:
+                prompt += f"\n\nAdditional instructions: {instructions}"
+            
+            result = await self.generate_completion(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=0.3  # Lower temperature for analysis
+            )
+            
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "analysis": result["content"],
+                    "analysis_type": analysis_type,
+                    "usage": result.get("usage", {})
+                }
+            else:
+                return result
+                
+        except Exception as e:
+            logger.error(f"OpenAI content analysis failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "analysis_type": analysis_type
+            }
 
-# Service instance
+# Service instance (legacy compatibility)
 openai_service = OpenAIService() 

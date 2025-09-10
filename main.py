@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing
+from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, agencies, admin
 from config import settings
 
 # Create database tables
@@ -34,15 +34,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include routers (preserve existing + add new multi-tenant)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
-app.include_router(clients.router)
+app.include_router(clients.router)  # Legacy client router (kept for backward compatibility)
 app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["integrations"])
 app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["workflows"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(seo.router, prefix="/api/v1/seo", tags=["seo"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(data_processing.router, prefix="/api/v1/data", tags=["data_processing"])
+
+# New multi-tenant routers
+app.include_router(agencies.router, tags=["agencies"])
+app.include_router(businesses.router, tags=["businesses"])
+app.include_router(admin.router, tags=["admin"])
 
 @app.get("/")
 async def root():

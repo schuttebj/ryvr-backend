@@ -15,13 +15,26 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 class DataForSEOService:
-    """DataForSEO API integration service"""
+    """Enhanced DataForSEO API integration service with multi-tier support"""
     
-    def __init__(self):
-        self.domain = "sandbox.dataforseo.com"  # Sandbox environment
-        self.username = settings.dataforseo_username
-        self.password = settings.dataforseo_password
-        self.base_url = settings.dataforseo_base_url
+    def __init__(self, username: Optional[str] = None, password: Optional[str] = None, base_url: Optional[str] = None):
+        # Support both new multi-tier initialization and legacy initialization
+        if username and password:
+            # New multi-tier initialization
+            self.username = username
+            self.password = password
+            self.base_url = base_url or "https://sandbox.dataforseo.com"
+        else:
+            # Legacy initialization (fallback to settings)
+            self.username = getattr(settings, 'dataforseo_username', None)
+            self.password = getattr(settings, 'dataforseo_password', None)
+            self.base_url = getattr(settings, 'dataforseo_base_url', "https://sandbox.dataforseo.com")
+        
+        # Extract domain from base_url
+        if self.base_url:
+            self.domain = self.base_url.replace("https://", "").replace("http://", "")
+        else:
+            self.domain = "sandbox.dataforseo.com"
         
     def _request(self, path: str, method: str = "GET", data: Optional[Dict] = None) -> Dict:
         """Make authenticated request to DataForSEO API"""
@@ -324,6 +337,241 @@ class DataForSEOService:
                 for item in keyword_data
             ] if isinstance(keyword_data, list) else []
         }
+    
+    # =============================================================================
+    # NEW INTEGRATION FRAMEWORK METHODS
+    # =============================================================================
+    
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test DataForSEO API connection"""
+        try:
+            if not self.username or not self.password:
+                return {
+                    "success": False,
+                    "error": "DataForSEO credentials not configured"
+                }
+            
+            # Test with a simple endpoint
+            result = self._request("/v3/user")
+            
+            if result.get("status_code") == 20000:
+                return {
+                    "success": True,
+                    "message": "DataForSEO connection successful",
+                    "user_info": result.get("tasks", [{}])[0] if result.get("tasks") else {}
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"DataForSEO API error: {result.get('status_message', 'Unknown error')}"
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"DataForSEO connection test failed: {str(e)}"
+            }
+    
+    async def execute_task(
+        self,
+        task_type: str,
+        endpoint: str,
+        params: Dict[str, Any],
+        input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute a DataForSEO task with given parameters"""
+        try:
+            if not self.username or not self.password:
+                raise Exception("DataForSEO credentials not configured")
+            
+            # Process different task types
+            if task_type == "serp":
+                return await self._execute_serp_task(endpoint, params, input_data)
+            elif task_type == "keywords":
+                return await self._execute_keywords_task(endpoint, params, input_data)
+            elif task_type == "backlinks":
+                return await self._execute_backlinks_task(endpoint, params, input_data)
+            elif task_type == "labs":
+                return await self._execute_labs_task(endpoint, params, input_data)
+            else:
+                return await self._execute_generic_task(endpoint, params, input_data)
+                
+        except Exception as e:
+            logger.error(f"DataForSEO task execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "task_type": task_type,
+                "endpoint": endpoint
+            }
+    
+    async def _execute_serp_task(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute SERP analysis task"""
+        # Extract keywords from input data or params
+        keyword = input_data.get("keyword") or params.get("keyword")
+        location_code = params.get("location_code", 2840)  # Default to US
+        language_code = params.get("language_code", "en")
+        
+        if not keyword:
+            raise Exception("Keyword is required for SERP analysis")
+        
+        # Prepare request data
+        request_data = [{
+            "keyword": keyword,
+            "location_code": location_code,
+            "language_code": language_code,
+            "device": params.get("device", "desktop"),
+            "os": params.get("os", "windows")
+        }]
+        
+        # Make API call
+        full_path = f"/v3/serp/{endpoint}"
+        result = self._request(full_path, "POST", request_data)
+        
+        if result.get("status_code") == 20000:
+            return {
+                "success": True,
+                "data": result.get("tasks", []),
+                "endpoint": endpoint,
+                "keyword": keyword
+            }
+        else:
+            raise Exception(f"SERP API error: {result.get('status_message', 'Unknown error')}")
+    
+    async def _execute_keywords_task(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute keywords research task"""
+        keywords = input_data.get("keywords") or params.get("keywords", [])
+        if isinstance(keywords, str):
+            keywords = [keywords]
+        
+        if not keywords:
+            raise Exception("Keywords are required for keyword research")
+        
+        # Prepare request data
+        request_data = [{
+            "keywords": keywords[:1000],  # Limit to 1000 keywords
+            "location_code": params.get("location_code", 2840),
+            "language_code": params.get("language_code", "en")
+        }]
+        
+        # Make API call
+        full_path = f"/v3/keywords_data/{endpoint}"
+        result = self._request(full_path, "POST", request_data)
+        
+        if result.get("status_code") == 20000:
+            return {
+                "success": True,
+                "data": result.get("tasks", []),
+                "endpoint": endpoint,
+                "keywords_count": len(keywords)
+            }
+        else:
+            raise Exception(f"Keywords API error: {result.get('status_message', 'Unknown error')}")
+    
+    async def _execute_backlinks_task(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute backlinks analysis task"""
+        target = input_data.get("target") or params.get("target")
+        
+        if not target:
+            raise Exception("Target domain/URL is required for backlinks analysis")
+        
+        # Prepare request data
+        request_data = [{
+            "target": target,
+            "limit": params.get("limit", 100),
+            "offset": params.get("offset", 0)
+        }]
+        
+        # Make API call
+        full_path = f"/v3/backlinks/{endpoint}"
+        result = self._request(full_path, "POST", request_data)
+        
+        if result.get("status_code") == 20000:
+            return {
+                "success": True,
+                "data": result.get("tasks", []),
+                "endpoint": endpoint,
+                "target": target
+            }
+        else:
+            raise Exception(f"Backlinks API error: {result.get('status_message', 'Unknown error')}")
+    
+    async def _execute_labs_task(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute DataForSEO Labs task"""
+        # Labs tasks vary widely, so we'll use a generic approach
+        target = input_data.get("target") or params.get("target")
+        keyword = input_data.get("keyword") or params.get("keyword")
+        
+        # Prepare request data based on available inputs
+        request_data = [{}]
+        
+        if target:
+            request_data[0]["target"] = target
+        if keyword:
+            request_data[0]["keyword"] = keyword
+        
+        # Add common parameters
+        request_data[0].update({
+            "location_code": params.get("location_code", 2840),
+            "language_code": params.get("language_code", "en"),
+            "limit": params.get("limit", 100),
+            "offset": params.get("offset", 0)
+        })
+        
+        # Make API call
+        full_path = f"/v3/dataforseo_labs/{endpoint}"
+        result = self._request(full_path, "POST", request_data)
+        
+        if result.get("status_code") == 20000:
+            return {
+                "success": True,
+                "data": result.get("tasks", []),
+                "endpoint": endpoint
+            }
+        else:
+            raise Exception(f"Labs API error: {result.get('status_message', 'Unknown error')}")
+    
+    async def _execute_generic_task(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute a generic DataForSEO task"""
+        # Merge input_data and params
+        request_data = [{**params, **input_data}]
+        
+        # Make API call
+        result = self._request(endpoint, "POST", request_data)
+        
+        if result.get("status_code") == 20000:
+            return {
+                "success": True,
+                "data": result.get("tasks", []),
+                "endpoint": endpoint
+            }
+        else:
+            raise Exception(f"Generic API error: {result.get('status_message', 'Unknown error')}")
 
-# Service instance
+# Service instance (legacy compatibility)
 dataforseo_service = DataForSEOService() 

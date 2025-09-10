@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 
 from database import get_db
-from auth import get_current_active_user
+from auth import (
+    get_current_active_user, 
+    get_current_admin_user,
+    verify_business_access,
+    get_user_businesses
+)
 import models, schemas
 from services.workflow_execution_service import workflow_execution_service
 
@@ -347,4 +352,309 @@ async def clear_workflow_node_data(
         raise
     except Exception as e:
         logging.error(f"Clear node data error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to clear node data") 
+        raise HTTPException(status_code=500, detail="Failed to clear node data")
+
+# =============================================================================
+# MULTI-TENANT WORKFLOW TEMPLATES (NEW)
+# =============================================================================
+
+@router.get("/templates", response_model=List[schemas.WorkflowTemplate])
+async def get_workflow_templates(
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get available workflow templates based on user's tier and access."""
+    query = db.query(models.WorkflowTemplate)
+    
+    # Filter by category
+    if category:
+        query = query.filter(models.WorkflowTemplate.category == category)
+    
+    # Filter by status (admin can see all, others only published/beta)
+    if current_user.role == "admin":
+        if status:
+            query = query.filter(models.WorkflowTemplate.status == status)
+    else:
+        # Non-admin users can see published templates or beta if they have access
+        allowed_statuses = ["published"]
+        if status and status in ["published"]:
+            query = query.filter(models.WorkflowTemplate.status == status)
+        else:
+            query = query.filter(models.WorkflowTemplate.status.in_(allowed_statuses))
+    
+    templates = query.offset(skip).limit(limit).all()
+    return templates
+
+@router.post("/templates", response_model=schemas.WorkflowTemplate)
+async def create_workflow_template(
+    template: schemas.WorkflowTemplateCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Create a new workflow template (admin only)."""
+    db_template = models.WorkflowTemplate(
+        **template.dict(),
+        created_by=current_user.id
+    )
+    
+    db.add(db_template)
+    db.commit()
+    db.refresh(db_template)
+    return db_template
+
+@router.get("/templates/{template_id}", response_model=schemas.WorkflowTemplate)
+async def get_workflow_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get a specific workflow template."""
+    template = db.query(models.WorkflowTemplate).filter(
+        models.WorkflowTemplate.id == template_id
+    ).first()
+    
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # Check access rights
+    if current_user.role != "admin" and template.status not in ["published"]:
+        # Check if user has beta access
+        if template.status == "beta" and current_user.id not in template.beta_users:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    return template
+
+@router.put("/templates/{template_id}", response_model=schemas.WorkflowTemplate)
+async def update_workflow_template(
+    template_id: int,
+    template_update: schemas.WorkflowTemplateUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Update a workflow template (admin only)."""
+    template = db.query(models.WorkflowTemplate).filter(
+        models.WorkflowTemplate.id == template_id
+    ).first()
+    
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # Update fields
+    for field, value in template_update.dict(exclude_unset=True).items():
+        setattr(template, field, value)
+    
+    db.commit()
+    db.refresh(template)
+    return template
+
+# =============================================================================
+# MULTI-TENANT WORKFLOW INSTANCES (NEW)
+# =============================================================================
+
+@router.get("/instances", response_model=List[schemas.WorkflowInstance])
+async def get_workflow_instances(
+    business_id: Optional[int] = None,
+    template_id: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get workflow instances for accessible businesses."""
+    # Get businesses user has access to
+    accessible_businesses = get_user_businesses(db, current_user)
+    business_ids = [b.id for b in accessible_businesses]
+    
+    if not business_ids:
+        return []
+    
+    query = db.query(models.WorkflowInstance).filter(
+        models.WorkflowInstance.business_id.in_(business_ids)
+    )
+    
+    # Filter by specific business if provided
+    if business_id:
+        if business_id not in business_ids:
+            raise HTTPException(status_code=403, detail="Access to this business denied")
+        query = query.filter(models.WorkflowInstance.business_id == business_id)
+    
+    # Filter by template
+    if template_id:
+        query = query.filter(models.WorkflowInstance.template_id == template_id)
+    
+    instances = query.offset(skip).limit(limit).all()
+    return instances
+
+@router.post("/instances", response_model=schemas.WorkflowInstance)
+async def create_workflow_instance(
+    instance: schemas.WorkflowInstanceCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Create a workflow instance from a template."""
+    # Verify business access
+    if not verify_business_access(db, current_user, instance.business_id):
+        raise HTTPException(status_code=403, detail="Access to this business denied")
+    
+    # Verify template exists and is accessible
+    template = db.query(models.WorkflowTemplate).filter(
+        models.WorkflowTemplate.id == instance.template_id
+    ).first()
+    
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # Check template access
+    if current_user.role != "admin" and template.status not in ["published"]:
+        if template.status == "beta" and current_user.id not in template.beta_users:
+            raise HTTPException(status_code=403, detail="Template access denied")
+    
+    # Create instance
+    db_instance = models.WorkflowInstance(**instance.dict())
+    db.add(db_instance)
+    db.commit()
+    db.refresh(db_instance)
+    return db_instance
+
+@router.get("/instances/{instance_id}", response_model=schemas.WorkflowInstance)
+async def get_workflow_instance(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get a specific workflow instance."""
+    instance = db.query(models.WorkflowInstance).filter(
+        models.WorkflowInstance.id == instance_id
+    ).first()
+    
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    # Verify business access
+    if not verify_business_access(db, current_user, instance.business_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return instance
+
+@router.post("/instances/{instance_id}/execute", response_model=schemas.WorkflowExecution)
+async def execute_workflow_instance(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Execute a workflow instance."""
+    instance = db.query(models.WorkflowInstance).filter(
+        models.WorkflowInstance.id == instance_id
+    ).first()
+    
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    # Verify business access
+    if not verify_business_access(db, current_user, instance.business_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if business has enough credits
+    business = db.query(models.Business).filter(
+        models.Business.id == instance.business_id
+    ).first()
+    
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+    
+    # Get agency's credit pool
+    credit_pool = db.query(models.CreditPool).filter(
+        models.CreditPool.owner_id == business.agency_id,
+        models.CreditPool.owner_type == "agency"
+    ).first()
+    
+    if not credit_pool:
+        raise HTTPException(status_code=400, detail="No credit pool found")
+    
+    # Get template to check credit cost
+    template = instance.template
+    estimated_cost = template.credit_cost if template else 10
+    
+    # Check credit balance
+    if credit_pool.balance < estimated_cost:
+        if credit_pool.balance + credit_pool.overage_threshold < estimated_cost:
+            raise HTTPException(
+                status_code=400,
+                detail="Insufficient credits to execute workflow"
+            )
+    
+    # Create execution record
+    execution = models.WorkflowExecution(
+        instance_id=instance_id,
+        business_id=instance.business_id,
+        status="pending"
+    )
+    
+    db.add(execution)
+    db.commit()
+    db.refresh(execution)
+    
+    # Update instance stats
+    instance.execution_count += 1
+    instance.last_executed_at = execution.started_at
+    
+    # Deduct credits
+    credit_pool.balance -= estimated_cost
+    credit_pool.total_used += estimated_cost
+    
+    # Create credit transaction
+    transaction = models.CreditTransaction(
+        pool_id=credit_pool.id,
+        business_id=instance.business_id,
+        workflow_execution_id=execution.id,
+        transaction_type="usage",
+        amount=-estimated_cost,
+        balance_after=credit_pool.balance,
+        description=f"Workflow execution: {template.name if template else 'Unknown'}",
+        created_by=current_user.id
+    )
+    
+    db.add(transaction)
+    
+    # Mark execution as completed (TODO: implement actual execution)
+    execution.status = "completed"
+    execution.credits_used = estimated_cost
+    execution.completed_at = execution.started_at
+    
+    # Update success count
+    instance.success_count += 1
+    
+    db.commit()
+    db.refresh(execution)
+    
+    return execution
+
+@router.get("/instances/{instance_id}/executions", response_model=List[schemas.WorkflowExecution])
+async def get_instance_executions(
+    instance_id: int,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get execution history for a workflow instance."""
+    instance = db.query(models.WorkflowInstance).filter(
+        models.WorkflowInstance.id == instance_id
+    ).first()
+    
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    # Verify business access
+    if not verify_business_access(db, current_user, instance.business_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    executions = db.query(models.WorkflowExecution).filter(
+        models.WorkflowExecution.instance_id == instance_id
+    ).order_by(models.WorkflowExecution.started_at.desc()).offset(skip).limit(limit).all()
+    
+    return executions 
