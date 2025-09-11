@@ -26,8 +26,32 @@ async def bootstrap_system():
     try:
         from sqlalchemy.orm import sessionmaker
         
-        # Drop and recreate all tables
-        Base.metadata.drop_all(bind=engine)
+        # Force drop all tables with CASCADE to handle foreign key constraints
+        with engine.connect() as connection:
+            # Get all table names
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            if tables:
+                # Begin transaction
+                trans = connection.begin()
+                try:
+                    # Disable foreign key checks temporarily
+                    connection.execute(text("SET foreign_key_checks = 0;"))
+                except:
+                    # PostgreSQL doesn't have foreign_key_checks, so we'll drop with CASCADE
+                    pass
+                
+                # Drop all tables with CASCADE (PostgreSQL)
+                for table in tables:
+                    try:
+                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                    except Exception as e:
+                        print(f"Warning: Could not drop table {table}: {e}")
+                
+                trans.commit()
+        
+        # Recreate all tables
         Base.metadata.create_all(bind=engine)
         
         # Create admin user
@@ -74,6 +98,246 @@ async def bootstrap_system():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Bootstrap failed: {str(e)}"
+        )
+
+@router.post("/emergency-reset", include_in_schema=True)
+async def emergency_reset():
+    """Emergency database reset (NO AUTH REQUIRED) - Use when system is completely broken"""
+    try:
+        # Force drop all tables with CASCADE
+        with engine.connect() as connection:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            if tables:
+                trans = connection.begin()
+                for table in tables:
+                    try:
+                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                    except Exception as e:
+                        print(f"Warning: Could not drop table {table}: {e}")
+                trans.commit()
+        
+        # Recreate tables
+        Base.metadata.create_all(bind=engine)
+        
+        return {
+            "status": "success",
+            "message": "Emergency database reset completed. All tables recreated.",
+            "timestamp": datetime.utcnow(),
+            "warning": "ALL DATA PERMANENTLY DELETED!",
+            "next_step": "Call /admin/bootstrap to create admin user and get access token"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Emergency reset failed: {str(e)}"
+        )
+
+@router.get("/health", include_in_schema=True)
+async def check_system_health():
+    """Check system health and database status (NO AUTH REQUIRED)"""
+    try:
+        # Test connection
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+            
+        # Check if tables exist
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        
+        # Check for key tables and columns
+        schema_status = {
+            "tables_exist": len(tables) > 0,
+            "total_tables": len(tables),
+            "has_users_table": "users" in tables,
+            "has_role_column": False,
+            "has_agencies_table": "agencies" in tables,
+            "has_businesses_table": "businesses" in tables
+        }
+        
+        # Check if users table has role column
+        if "users" in tables:
+            try:
+                with engine.connect() as connection:
+                    result = connection.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'role';"))
+                    schema_status["has_role_column"] = result.fetchone() is not None
+            except:
+                pass
+        
+        # Count records
+        record_counts = {}
+        if schema_status["has_users_table"]:
+            try:
+                with engine.connect() as connection:
+                    result = connection.execute(text("SELECT COUNT(*) FROM users"))
+                    record_counts["users"] = result.scalar()
+            except:
+                record_counts["users"] = "error"
+        
+        return {
+            "status": "connected",
+            "schema_status": schema_status,
+            "record_counts": record_counts,
+            "tables": tables,
+            "timestamp": datetime.utcnow(),
+            "recommendations": [
+                "Run /admin/emergency-reset if schema is broken",
+                "Run /admin/bootstrap to create admin user",
+                "Run /admin/database/initialize for default data"
+            ]
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow(),
+            "recommendations": [
+                "Database connection failed",
+                "Check DATABASE_URL environment variable",
+                "Ensure PostgreSQL service is running"
+            ]
+        }
+
+@router.post("/full-reset", include_in_schema=True)
+async def full_system_reset():
+    """Complete system reset: drop tables + recreate + admin user + default data (NO AUTH REQUIRED)"""
+    try:
+        from sqlalchemy.orm import sessionmaker
+        from decimal import Decimal
+        
+        results = []
+        
+        # Step 1: Drop all tables with CASCADE
+        with engine.connect() as connection:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            if tables:
+                trans = connection.begin()
+                for table in tables:
+                    try:
+                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                    except Exception as e:
+                        print(f"Warning: Could not drop table {table}: {e}")
+                trans.commit()
+                results.append(f"Dropped {len(tables)} existing tables")
+        
+        # Step 2: Recreate all tables
+        Base.metadata.create_all(bind=engine)
+        results.append("Created new table schema")
+        
+        # Step 3: Create admin user and default data
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        # Create admin user
+        admin_user = models.User(
+            username="admin",
+            email="admin@ryvr.com", 
+            first_name="System",
+            last_name="Administrator",
+            hashed_password=get_password_hash("password"),
+            role="admin",
+            is_active=True,
+            email_verified=True
+        )
+        db.add(admin_user)
+        results.append("Created admin user")
+        
+        # Create subscription tiers
+        tiers_data = [
+            {
+                "name": "Starter", "slug": "starter", 
+                "monthly_price": Decimal("29.00"), "annual_price": Decimal("290.00"),
+                "credits_included": 5000, "max_businesses": 3,
+                "features": ["Basic workflows", "Standard integrations", "Email support"]
+            },
+            {
+                "name": "Professional", "slug": "professional",
+                "monthly_price": Decimal("99.00"), "annual_price": Decimal("990.00"), 
+                "credits_included": 20000, "max_businesses": 10,
+                "features": ["Advanced workflows", "All integrations", "Priority support", "White-labeling"]
+            },
+            {
+                "name": "Enterprise", "slug": "enterprise",
+                "monthly_price": Decimal("299.00"), "annual_price": Decimal("2990.00"),
+                "credits_included": 100000, "max_businesses": -1,
+                "features": ["Custom workflows", "Dedicated support", "Custom integrations", "SLA"]
+            }
+        ]
+        
+        for tier_data in tiers_data:
+            tier = models.SubscriptionTier(**tier_data)
+            db.add(tier)
+        results.append("Created 3 subscription tiers")
+        
+        # Create system integrations
+        system_integrations = [
+            {
+                "name": "DataForSEO", "type": "seo", "tier": "system",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "username": {"type": "string"},
+                        "password": {"type": "string"},
+                        "base_url": {"type": "string", "default": "https://sandbox.dataforseo.com"}
+                    },
+                    "required": ["username", "password"]
+                },
+                "is_active": True
+            },
+            {
+                "name": "OpenAI", "type": "ai", "tier": "system", 
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "api_key": {"type": "string"},
+                        "model": {"type": "string", "default": "gpt-4"},
+                        "max_tokens": {"type": "integer", "default": 1000}
+                    },
+                    "required": ["api_key"]
+                },
+                "is_active": True
+            }
+        ]
+        
+        for int_data in system_integrations:
+            integration = models.Integration(**int_data)
+            db.add(integration)
+        results.append("Created 2 system integrations")
+        
+        db.commit()
+        db.refresh(admin_user)
+        
+        # Create admin token
+        access_token = create_login_token(admin_user, None, None)
+        
+        db.close()
+        
+        return {
+            "status": "success",
+            "message": "Complete system reset successful! Ready to use.",
+            "actions_performed": results,
+            "admin_credentials": {
+                "username": "admin",
+                "password": "password"
+            },
+            "access_token": access_token,
+            "token_type": "bearer",
+            "timestamp": datetime.utcnow(),
+            "system_ready": True
+        }
+        
+    except Exception as e:
+        if 'db' in locals():
+            db.rollback()
+            db.close()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Full reset failed: {str(e)}"
         )
 
 @router.get("/database/status")
@@ -137,8 +401,24 @@ async def reset_database(
         )
     
     try:
-        # Drop all tables
-        Base.metadata.drop_all(bind=engine)
+        # Force drop all tables with CASCADE to handle foreign key constraints
+        with engine.connect() as connection:
+            # Get all table names
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            if tables:
+                # Begin transaction
+                trans = connection.begin()
+                
+                # Drop all tables with CASCADE (PostgreSQL)
+                for table in tables:
+                    try:
+                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                    except Exception as e:
+                        print(f"Warning: Could not drop table {table}: {e}")
+                
+                trans.commit()
         
         # Recreate all tables
         Base.metadata.create_all(bind=engine)
