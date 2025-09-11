@@ -33,23 +33,25 @@ async def bootstrap_system():
             tables = inspector.get_table_names()
             
             if tables:
-                # Begin transaction
-                trans = connection.begin()
+                # Try to drop all tables at once first
+                tables_list = ', '.join(tables)
                 try:
-                    # Disable foreign key checks temporarily
-                    connection.execute(text("SET foreign_key_checks = 0;"))
-                except:
-                    # PostgreSQL doesn't have foreign_key_checks, so we'll drop with CASCADE
-                    pass
-                
-                # Drop all tables with CASCADE (PostgreSQL)
-                for table in tables:
-                    try:
-                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
-                    except Exception as e:
-                        print(f"Warning: Could not drop table {table}: {e}")
-                
-                trans.commit()
+                    connection.execute(text(f"DROP TABLE IF EXISTS {tables_list} CASCADE;"))
+                    connection.commit()
+                except Exception as e:
+                    # If that fails, try one by one with individual transactions
+                    print(f"Bulk drop failed: {e}, trying individual drops")
+                    for table in tables:
+                        try:
+                            trans = connection.begin()
+                            connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                            trans.commit()
+                        except Exception as table_error:
+                            try:
+                                trans.rollback()
+                            except:
+                                pass
+                            print(f"Could not drop table {table}: {table_error}")
         
         # Recreate all tables
         Base.metadata.create_all(bind=engine)
@@ -110,13 +112,25 @@ async def emergency_reset():
             tables = inspector.get_table_names()
             
             if tables:
-                trans = connection.begin()
-                for table in tables:
-                    try:
-                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
-                    except Exception as e:
-                        print(f"Warning: Could not drop table {table}: {e}")
-                trans.commit()
+                # Try to drop all tables at once first
+                tables_list = ', '.join(tables)
+                try:
+                    connection.execute(text(f"DROP TABLE IF EXISTS {tables_list} CASCADE;"))
+                    connection.commit()
+                except Exception as e:
+                    # If that fails, try one by one with individual transactions
+                    print(f"Bulk drop failed: {e}, trying individual drops")
+                    for table in tables:
+                        try:
+                            trans = connection.begin()
+                            connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                            trans.commit()
+                        except Exception as table_error:
+                            try:
+                                trans.rollback()
+                            except:
+                                pass
+                            print(f"Could not drop table {table}: {table_error}")
         
         # Recreate tables
         Base.metadata.create_all(bind=engine)
@@ -201,6 +215,44 @@ async def check_system_health():
             ]
         }
 
+@router.post("/create-schema", include_in_schema=True)
+async def create_schema_only():
+    """Create database schema only - no data (NO AUTH REQUIRED)"""
+    try:
+        # Simply create all tables
+        Base.metadata.create_all(bind=engine)
+        
+        # Check what was created
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        
+        # Check if users table has role column
+        has_role_column = False
+        if "users" in tables:
+            try:
+                with engine.connect() as connection:
+                    result = connection.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'role';"))
+                    has_role_column = result.fetchone() is not None
+            except:
+                pass
+        
+        return {
+            "status": "success",
+            "message": "Database schema created successfully",
+            "tables_created": len(tables),
+            "has_users_table": "users" in tables,
+            "has_role_column": has_role_column,
+            "tables": tables,
+            "timestamp": datetime.utcnow(),
+            "next_step": "Call /admin/bootstrap to create admin user"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Schema creation failed: {str(e)}"
+        )
+
 @router.post("/full-reset", include_in_schema=True)
 async def full_system_reset():
     """Complete system reset: drop tables + recreate + admin user + default data (NO AUTH REQUIRED)"""
@@ -210,20 +262,33 @@ async def full_system_reset():
         
         results = []
         
-        # Step 1: Drop all tables with CASCADE
+        # Step 1: Drop all tables with CASCADE - PostgreSQL specific approach
         with engine.connect() as connection:
             inspector = inspect(engine)
             tables = inspector.get_table_names()
             
             if tables:
-                trans = connection.begin()
-                for table in tables:
-                    try:
-                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
-                    except Exception as e:
-                        print(f"Warning: Could not drop table {table}: {e}")
-                trans.commit()
-                results.append(f"Dropped {len(tables)} existing tables")
+                # Single command to drop all tables at once
+                tables_list = ', '.join(tables)
+                try:
+                    connection.execute(text(f"DROP TABLE IF EXISTS {tables_list} CASCADE;"))
+                    connection.commit()
+                    results.append(f"Dropped {len(tables)} existing tables")
+                except Exception as e:
+                    # If that fails, try one by one with individual transactions
+                    print(f"Bulk drop failed: {e}, trying individual drops")
+                    for table in tables:
+                        try:
+                            trans = connection.begin()
+                            connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                            trans.commit()
+                        except Exception as table_error:
+                            try:
+                                trans.rollback()
+                            except:
+                                pass
+                            print(f"Could not drop table {table}: {table_error}")
+                    results.append(f"Attempted to drop {len(tables)} tables")
         
         # Step 2: Recreate all tables
         Base.metadata.create_all(bind=engine)
@@ -251,20 +316,20 @@ async def full_system_reset():
         tiers_data = [
             {
                 "name": "Starter", "slug": "starter", 
-                "monthly_price": Decimal("29.00"), "annual_price": Decimal("290.00"),
-                "credits_included": 5000, "max_businesses": 3,
+                "price_monthly": Decimal("29.00"), "price_yearly": Decimal("290.00"),
+                "credits_included": 5000, "client_limit": 3, "user_limit": 5,
                 "features": ["Basic workflows", "Standard integrations", "Email support"]
             },
             {
                 "name": "Professional", "slug": "professional",
-                "monthly_price": Decimal("99.00"), "annual_price": Decimal("990.00"), 
-                "credits_included": 20000, "max_businesses": 10,
+                "price_monthly": Decimal("99.00"), "price_yearly": Decimal("990.00"), 
+                "credits_included": 20000, "client_limit": 10, "user_limit": 15,
                 "features": ["Advanced workflows", "All integrations", "Priority support", "White-labeling"]
             },
             {
                 "name": "Enterprise", "slug": "enterprise",
-                "monthly_price": Decimal("299.00"), "annual_price": Decimal("2990.00"),
-                "credits_included": 100000, "max_businesses": -1,
+                "price_monthly": Decimal("299.00"), "price_yearly": Decimal("2990.00"),
+                "credits_included": 100000, "client_limit": -1, "user_limit": -1,
                 "features": ["Custom workflows", "Dedicated support", "Custom integrations", "SLA"]
             }
         ]
@@ -408,17 +473,25 @@ async def reset_database(
             tables = inspector.get_table_names()
             
             if tables:
-                # Begin transaction
-                trans = connection.begin()
-                
-                # Drop all tables with CASCADE (PostgreSQL)
-                for table in tables:
-                    try:
-                        connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
-                    except Exception as e:
-                        print(f"Warning: Could not drop table {table}: {e}")
-                
-                trans.commit()
+                # Try to drop all tables at once first
+                tables_list = ', '.join(tables)
+                try:
+                    connection.execute(text(f"DROP TABLE IF EXISTS {tables_list} CASCADE;"))
+                    connection.commit()
+                except Exception as e:
+                    # If that fails, try one by one with individual transactions
+                    print(f"Bulk drop failed: {e}, trying individual drops")
+                    for table in tables:
+                        try:
+                            trans = connection.begin()
+                            connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+                            trans.commit()
+                        except Exception as table_error:
+                            try:
+                                trans.rollback()
+                            except:
+                                pass
+                            print(f"Could not drop table {table}: {table_error}")
         
         # Recreate all tables
         Base.metadata.create_all(bind=engine)
@@ -455,28 +528,31 @@ async def initialize_database(
             {
                 "name": "Starter",
                 "slug": "starter", 
-                "monthly_price": Decimal("29.00"),
-                "annual_price": Decimal("290.00"),
+                "price_monthly": Decimal("29.00"),
+                "price_yearly": Decimal("290.00"),
                 "credits_included": 5000,
-                "max_businesses": 3,
+                "client_limit": 3,
+                "user_limit": 5,
                 "features": ["Basic workflows", "Standard integrations", "Email support"]
             },
             {
                 "name": "Professional", 
                 "slug": "professional",
-                "monthly_price": Decimal("99.00"),
-                "annual_price": Decimal("990.00"), 
+                "price_monthly": Decimal("99.00"),
+                "price_yearly": Decimal("990.00"), 
                 "credits_included": 20000,
-                "max_businesses": 10,
+                "client_limit": 10,
+                "user_limit": 15,
                 "features": ["Advanced workflows", "All integrations", "Priority support", "White-labeling"]
             },
             {
                 "name": "Enterprise",
                 "slug": "enterprise",
-                "monthly_price": Decimal("299.00"),
-                "annual_price": Decimal("2990.00"),
+                "price_monthly": Decimal("299.00"),
+                "price_yearly": Decimal("2990.00"),
                 "credits_included": 100000,
-                "max_businesses": -1,  # unlimited
+                "client_limit": -1,  # unlimited
+                "user_limit": -1,  # unlimited
                 "features": ["Custom workflows", "Dedicated support", "Custom integrations", "SLA"]
             }
         ]
