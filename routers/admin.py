@@ -732,7 +732,7 @@ async def get_admin_dashboard(
     
     # Agency statistics
     total_agencies = db.query(models.Agency).filter(models.Agency.is_active == True).count()
-    agencies_with_businesses = db.query(models.Agency).join(models.Business).filter(
+    agencies_with_businesses = db.query(models.Agency.id).join(models.Business).filter(
         models.Agency.is_active == True,
         models.Business.is_active == True
     ).distinct().count()
