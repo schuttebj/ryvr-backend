@@ -215,6 +215,36 @@ async def check_system_health():
             ]
         }
 
+@router.get("/debug-models", include_in_schema=True)
+async def debug_model_structure():
+    """Debug model structure - show field names for troubleshooting (NO AUTH REQUIRED)"""
+    try:
+        # Get User model columns
+        user_columns = [column.name for column in models.User.__table__.columns]
+        
+        # Get SubscriptionTier model columns
+        tier_columns = [column.name for column in models.SubscriptionTier.__table__.columns]
+        
+        # Get Integration model columns
+        integration_columns = [column.name for column in models.Integration.__table__.columns]
+        
+        return {
+            "status": "success",
+            "model_structures": {
+                "User": user_columns,
+                "SubscriptionTier": tier_columns,
+                "Integration": integration_columns
+            },
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow()
+        }
+
 @router.post("/create-schema", include_in_schema=True)
 async def create_schema_only():
     """Create database schema only - no data (NO AUTH REQUIRED)"""
@@ -342,7 +372,10 @@ async def full_system_reset():
         # Create system integrations
         system_integrations = [
             {
-                "name": "DataForSEO", "type": "seo", "tier": "system",
+                "name": "DataForSEO", 
+                "provider": "dataforseo", 
+                "integration_type": "system",
+                "level": "system",
                 "config_schema": {
                     "type": "object",
                     "properties": {
@@ -355,7 +388,10 @@ async def full_system_reset():
                 "is_active": True
             },
             {
-                "name": "OpenAI", "type": "ai", "tier": "system", 
+                "name": "OpenAI", 
+                "provider": "openai", 
+                "integration_type": "system",
+                "level": "system", 
                 "config_schema": {
                     "type": "object",
                     "properties": {
@@ -588,8 +624,9 @@ async def initialize_database(
         system_integrations = [
             {
                 "name": "DataForSEO",
-                "type": "seo",
-                "tier": "system",
+                "provider": "dataforseo",
+                "integration_type": "system",
+                "level": "system",
                 "config_schema": {
                     "type": "object",
                     "properties": {
@@ -603,8 +640,9 @@ async def initialize_database(
             },
             {
                 "name": "OpenAI",
-                "type": "ai",
-                "tier": "system", 
+                "provider": "openai",
+                "integration_type": "system",
+                "level": "system", 
                 "config_schema": {
                     "type": "object",
                     "properties": {
@@ -622,7 +660,7 @@ async def initialize_database(
         for int_data in system_integrations:
             existing = db.query(models.Integration).filter(
                 models.Integration.name == int_data["name"],
-                models.Integration.tier == "system"
+                models.Integration.level == "system"
             ).first()
             
             if not existing:
