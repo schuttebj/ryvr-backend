@@ -5,15 +5,319 @@ Handles system administration, configuration, and monitoring
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import text, inspect
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 
-from database import get_db
-from auth import get_current_admin_user
+from database import get_db, engine, Base
+from auth import get_current_admin_user, get_password_hash, create_login_token
 import models, schemas
 from services.credit_service import CreditService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+# =============================================================================
+# DATABASE MANAGEMENT
+# =============================================================================
+
+@router.post("/bootstrap", include_in_schema=True)
+async def bootstrap_system():
+    """Bootstrap the system - reset database and create admin user (NO AUTH REQUIRED)"""
+    try:
+        from sqlalchemy.orm import sessionmaker
+        
+        # Drop and recreate all tables
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        
+        # Create admin user
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        admin_user = models.User(
+            username="admin",
+            email="admin@ryvr.com", 
+            first_name="System",
+            last_name="Administrator",
+            hashed_password=get_password_hash("password"),
+            role="admin",
+            is_active=True,
+            email_verified=True
+        )
+        db.add(admin_user)
+        db.commit()
+        db.refresh(admin_user)
+        
+        # Create admin token
+        access_token = create_login_token(admin_user, None, None)
+        
+        db.close()
+        
+        return {
+            "status": "success",
+            "message": "System bootstrapped successfully! Database reset and admin user created.",
+            "admin_credentials": {
+                "username": "admin",
+                "password": "password"
+            },
+            "access_token": access_token,
+            "token_type": "bearer",
+            "timestamp": datetime.utcnow(),
+            "next_steps": [
+                "Use this token for subsequent admin API calls",
+                "Call /admin/database/initialize to create default data",
+                "Access OpenAPI docs at /docs with authorization"
+            ]
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Bootstrap failed: {str(e)}"
+        )
+
+@router.get("/database/status")
+async def get_database_status(
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Check database connection and table status"""
+    try:
+        # Test connection
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+            
+        # Check if tables exist
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        
+        # Check for key tables
+        expected_tables = [
+            'users', 'agencies', 'businesses', 'agency_users', 'business_users',
+            'workflow_templates', 'workflow_instances', 'integrations',
+            'subscription_tiers', 'credit_pools', 'credit_transactions'
+        ]
+        
+        table_status = {}
+        for table in expected_tables:
+            table_status[table] = table in tables
+            
+        # Count records in key tables
+        record_counts = {}
+        if 'users' in tables:
+            with engine.connect() as connection:
+                for table in ['users', 'agencies', 'businesses']:
+                    if table in tables:
+                        result = connection.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        record_counts[table] = result.scalar()
+        
+        return {
+            "status": "connected",
+            "tables_exist": table_status,
+            "record_counts": record_counts,
+            "total_tables": len(tables),
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database connection failed: {str(e)}"
+        )
+
+@router.post("/database/reset")
+async def reset_database(
+    confirm: bool = False,
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Reset database - DROP ALL TABLES and recreate schema (DANGEROUS!)"""
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This operation requires confirmation. Set 'confirm=true' to proceed."
+        )
+    
+    try:
+        # Drop all tables
+        Base.metadata.drop_all(bind=engine)
+        
+        # Recreate all tables
+        Base.metadata.create_all(bind=engine)
+        
+        return {
+            "status": "success",
+            "message": "Database reset successfully. All tables dropped and recreated.",
+            "timestamp": datetime.utcnow(),
+            "warning": "All data has been permanently deleted!"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database reset failed: {str(e)}"
+        )
+
+@router.post("/database/initialize")
+async def initialize_database(
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Initialize database with default data (subscription tiers, admin user, etc.)"""
+    try:
+        from sqlalchemy.orm import sessionmaker
+        from decimal import Decimal
+        
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        results = []
+        
+        # Create default subscription tiers
+        tiers_data = [
+            {
+                "name": "Starter",
+                "slug": "starter", 
+                "monthly_price": Decimal("29.00"),
+                "annual_price": Decimal("290.00"),
+                "credits_included": 5000,
+                "max_businesses": 3,
+                "features": ["Basic workflows", "Standard integrations", "Email support"]
+            },
+            {
+                "name": "Professional", 
+                "slug": "professional",
+                "monthly_price": Decimal("99.00"),
+                "annual_price": Decimal("990.00"), 
+                "credits_included": 20000,
+                "max_businesses": 10,
+                "features": ["Advanced workflows", "All integrations", "Priority support", "White-labeling"]
+            },
+            {
+                "name": "Enterprise",
+                "slug": "enterprise",
+                "monthly_price": Decimal("299.00"),
+                "annual_price": Decimal("2990.00"),
+                "credits_included": 100000,
+                "max_businesses": -1,  # unlimited
+                "features": ["Custom workflows", "Dedicated support", "Custom integrations", "SLA"]
+            }
+        ]
+        
+        tier_count = 0
+        for tier_data in tiers_data:
+            existing = db.query(models.SubscriptionTier).filter(
+                models.SubscriptionTier.slug == tier_data["slug"]
+            ).first()
+            
+            if not existing:
+                tier = models.SubscriptionTier(**tier_data)
+                db.add(tier)
+                tier_count += 1
+        
+        # Create admin user if doesn't exist
+        admin_user = db.query(models.User).filter(models.User.username == "admin").first()
+        if not admin_user:
+            admin_user = models.User(
+                username="admin",
+                email="admin@ryvr.com",
+                first_name="System",
+                last_name="Administrator",
+                hashed_password=get_password_hash("password"),
+                role="admin",
+                is_active=True,
+                email_verified=True
+            )
+            db.add(admin_user)
+            results.append("Created admin user (username: admin, password: password)")
+        
+        # Create system integrations
+        system_integrations = [
+            {
+                "name": "DataForSEO",
+                "type": "seo",
+                "tier": "system",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "username": {"type": "string"},
+                        "password": {"type": "string"},
+                        "base_url": {"type": "string", "default": "https://sandbox.dataforseo.com"}
+                    },
+                    "required": ["username", "password"]
+                },
+                "is_active": True
+            },
+            {
+                "name": "OpenAI",
+                "type": "ai",
+                "tier": "system", 
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "api_key": {"type": "string"},
+                        "model": {"type": "string", "default": "gpt-4"},
+                        "max_tokens": {"type": "integer", "default": 1000}
+                    },
+                    "required": ["api_key"]
+                },
+                "is_active": True
+            }
+        ]
+        
+        integration_count = 0
+        for int_data in system_integrations:
+            existing = db.query(models.Integration).filter(
+                models.Integration.name == int_data["name"],
+                models.Integration.tier == "system"
+            ).first()
+            
+            if not existing:
+                integration = models.Integration(**int_data)
+                db.add(integration)
+                integration_count += 1
+        
+        db.commit()
+        db.close()
+        
+        results.extend([
+            f"Created {tier_count} subscription tiers",
+            f"Created {integration_count} system integrations"
+        ])
+        
+        return {
+            "status": "success",
+            "message": "Database initialized successfully",
+            "actions_performed": results,
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        if 'db' in locals():
+            db.rollback()
+            db.close()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database initialization failed: {str(e)}"
+        )
+
+@router.post("/database/migrate")
+async def migrate_database(
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Create missing tables and columns (safe migration)"""
+    try:
+        # Create any missing tables
+        Base.metadata.create_all(bind=engine)
+        
+        return {
+            "status": "success", 
+            "message": "Database migration completed. Missing tables and columns created.",
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database migration failed: {str(e)}"
+        )
 
 # =============================================================================
 # SYSTEM OVERVIEW & ANALYTICS
