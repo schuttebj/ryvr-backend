@@ -675,3 +675,71 @@ class NodeExecutionResponse(BaseModel):
     data: Dict[str, Any]
     execution_time_ms: int
     credits_used: int = 0
+
+# =============================================================================
+# LEGACY WORKFLOW SCHEMAS (for backward compatibility)
+# =============================================================================
+
+class WorkflowBase(BaseModel):
+    """Legacy workflow schema - maps to WorkflowInstance for backward compatibility"""
+    name: str
+    description: Optional[str] = None
+    config: Dict[str, Any]
+    is_active: bool = True
+
+class WorkflowCreate(WorkflowBase):
+    """Legacy workflow creation schema"""
+    template_id: Optional[int] = None
+    business_id: Optional[int] = None
+
+class WorkflowUpdate(BaseModel):
+    """Legacy workflow update schema"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+class Workflow(WorkflowBase):
+    """Legacy workflow schema - maps to WorkflowInstance for backward compatibility"""
+    id: int
+    template_id: Optional[int] = None
+    business_id: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# DATA PROCESSING SCHEMAS
+# =============================================================================
+
+class DataFilterRequest(BaseModel):
+    data: Dict[str, Any]
+    filters: Dict[str, Any]
+    operation: str = "filter"
+
+class DataTransformRequest(BaseModel):
+    data: Dict[str, Any]
+    transformations: List[Dict[str, Any]]
+    output_format: str = "json"
+
+class DataValidationRequest(BaseModel):
+    data: Dict[str, Any]
+    schema_rules: Dict[str, Any]
+    strict_mode: bool = True
+
+# =============================================================================
+# ANALYTICS SCHEMAS
+# =============================================================================
+
+class ClientStats(BaseModel):
+    """Legacy client stats - maps to BusinessStats for backward compatibility"""
+    client_id: int
+    total_workflows: int
+    active_workflows: int
+    total_executions: int
+    success_rate: float
+    credits_used: int
+    credits_remaining: int
+    last_activity: Optional[datetime] = None
