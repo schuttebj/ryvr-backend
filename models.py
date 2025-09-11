@@ -28,10 +28,13 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    agency_memberships = relationship("AgencyUser", back_populates="user")
-    business_memberships = relationship("BusinessUser", back_populates="user")
+    agency_memberships = relationship("AgencyUser", back_populates="user", foreign_keys="AgencyUser.user_id")
+    business_memberships = relationship("BusinessUser", back_populates="user", foreign_keys="BusinessUser.user_id")
     created_agencies = relationship("Agency", foreign_keys="Agency.created_by")
     subscription = relationship("UserSubscription", back_populates="user", uselist=False)
+    
+    # Invitations sent by this user
+    agency_invitations = relationship("AgencyUser", foreign_keys="AgencyUser.invited_by")
     
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'agency', 'individual')", name='check_user_role'),
@@ -80,6 +83,7 @@ class AgencyUser(Base):
     # Relationships
     agency = relationship("Agency", back_populates="users")
     user = relationship("User", back_populates="agency_memberships", foreign_keys=[user_id])
+    inviter = relationship("User", foreign_keys=[invited_by])
     
     __table_args__ = (
         UniqueConstraint('agency_id', 'user_id', name='unique_agency_user'),
