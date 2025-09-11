@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, JSON, ForeignKey, Decimal, UniqueConstraint, CheckConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, JSON, ForeignKey, UniqueConstraint, CheckConstraint, Numeric
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+from decimal import Decimal
 import uuid
 
 # =============================================================================
@@ -245,8 +246,8 @@ class SubscriptionTier(Base):
     name = Column(String(100), nullable=False)
     slug = Column(String(50), unique=True, nullable=False)
     description = Column(Text, nullable=True)
-    price_monthly = Column(Decimal(10, 2), nullable=False)
-    price_yearly = Column(Decimal(10, 2), nullable=True)
+    price_monthly = Column(Numeric(10, 2), nullable=False)
+    price_yearly = Column(Numeric(10, 2), nullable=True)
     credits_included = Column(Integer, nullable=False)
     client_limit = Column(Integer, nullable=False)  # max businesses
     user_limit = Column(Integer, nullable=False)  # max agency users
