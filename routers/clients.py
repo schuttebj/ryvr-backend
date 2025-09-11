@@ -7,7 +7,7 @@ import openai
 import os
 
 from database import get_db
-from auth import get_current_active_user
+from auth import get_current_active_user, get_user_businesses
 import models
 import schemas
 
@@ -23,12 +23,21 @@ def get_clients(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    query = db.query(models.Client).filter(models.Client.owner_id == current_user.id)
+    # Get businesses accessible to current user
+    accessible_businesses = get_user_businesses(current_user, db)
+    business_ids = [b.id for b in accessible_businesses]
     
-    if status:
-        query = query.filter(models.Client.status == status)
+    if not business_ids:
+        return []
+    
+    query = db.query(models.Business).filter(models.Business.id.in_(business_ids))
+    
+    if status == "active":
+        query = query.filter(models.Business.is_active == True)
+    elif status == "inactive":
+        query = query.filter(models.Business.is_active == False)
     if industry:
-        query = query.filter(models.Client.industry == industry)
+        query = query.filter(models.Business.industry == industry)
     
     clients = query.offset(skip).limit(limit).all()
     return clients
@@ -40,9 +49,13 @@ def get_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    client = db.query(models.Client).filter(
-        models.Client.id == client_id,
-        models.Client.owner_id == current_user.id
+    # Check if user has access to this business
+    accessible_businesses = get_user_businesses(current_user, db)
+    business_ids = [b.id for b in accessible_businesses]
+    
+    client = db.query(models.Business).filter(
+        models.Business.id == client_id,
+        models.Business.id.in_(business_ids)
     ).first()
     
     if not client:
@@ -57,9 +70,30 @@ def create_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    db_client = models.Client(
+    # For individual users, get their agency_id
+    if current_user.role == 'individual':
+        # Get the user's personal agency
+        user_agency = db.query(models.AgencyUser).filter(
+            models.AgencyUser.user_id == current_user.id,
+            models.AgencyUser.role == 'owner'
+        ).first()
+        if not user_agency:
+            raise HTTPException(status_code=400, detail="User agency not found")
+        agency_id = user_agency.agency_id
+    else:
+        # Use the provided agency_id (must be accessible by user)
+        agency_id = client.agency_id
+        # Verify user has access to this agency
+        user_agency = db.query(models.AgencyUser).filter(
+            models.AgencyUser.user_id == current_user.id,
+            models.AgencyUser.agency_id == agency_id
+        ).first()
+        if not user_agency:
+            raise HTTPException(status_code=403, detail="Access denied to agency")
+    
+    db_client = models.Business(
         **client.dict(),
-        owner_id=current_user.id
+        agency_id=agency_id
     )
     db.add(db_client)
     db.commit()
@@ -74,9 +108,13 @@ def update_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    client = db.query(models.Client).filter(
-        models.Client.id == client_id,
-        models.Client.owner_id == current_user.id
+    # Check if user has access to this business
+    accessible_businesses = get_user_businesses(current_user, db)
+    business_ids = [b.id for b in accessible_businesses]
+    
+    client = db.query(models.Business).filter(
+        models.Business.id == client_id,
+        models.Business.id.in_(business_ids)
     ).first()
     
     if not client:
@@ -99,15 +137,21 @@ def delete_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    client = db.query(models.Client).filter(
-        models.Client.id == client_id,
-        models.Client.owner_id == current_user.id
+    # Check if user has access to this business
+    accessible_businesses = get_user_businesses(current_user, db)
+    business_ids = [b.id for b in accessible_businesses]
+    
+    client = db.query(models.Business).filter(
+        models.Business.id == client_id,
+        models.Business.id.in_(business_ids)
     ).first()
     
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    db.delete(client)
+    # Soft delete
+    client.is_active = False
+    client.updated_at = datetime.utcnow()
     db.commit()
     return {"message": "Client deleted successfully"}
 
@@ -119,19 +163,26 @@ def update_questionnaire(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    client = db.query(models.Client).filter(
-        models.Client.id == client_id,
-        models.Client.owner_id == current_user.id
+    # Check if user has access to this business
+    accessible_businesses = get_user_businesses(current_user, db)
+    business_ids = [b.id for b in accessible_businesses]
+    
+    client = db.query(models.Business).filter(
+        models.Business.id == client_id,
+        models.Business.id.in_(business_ids)
     ).first()
     
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
     # Merge with existing questionnaire data
-    existing_responses = client.questionnaire_responses or {}
+    existing_responses = client.onboarding_data.get('questionnaire_responses', {}) if client.onboarding_data else {}
     existing_responses.update(questionnaire_data)
     
-    client.questionnaire_responses = existing_responses
+    # Update onboarding_data to include questionnaire responses
+    onboarding_data = client.onboarding_data or {}
+    onboarding_data['questionnaire_responses'] = existing_responses
+    client.onboarding_data = onboarding_data
     client.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(client)
@@ -153,7 +204,8 @@ def generate_business_profile(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    if not client.questionnaire_responses:
+    questionnaire_responses = client.onboarding_data.get('questionnaire_responses') if client.onboarding_data else None
+    if not questionnaire_responses:
         raise HTTPException(status_code=400, detail="Client must complete questionnaire before generating profile")
     
     try:
@@ -161,16 +213,29 @@ def generate_business_profile(
         openai_api_key = os.getenv("OPENAI_API_KEY")
         
         if not openai_api_key:
-            # Try to get from user's integrations
-            integration = db.query(models.Integration).filter(
-                models.Integration.owner_id == current_user.id,
-                models.Integration.type == "openai",
-                models.Integration.status == "connected"
+            # Try to get from business or agency integrations
+            integration = db.query(models.BusinessIntegration).filter(
+                models.BusinessIntegration.business_id == client_id
+            ).join(models.Integration).filter(
+                models.Integration.name == "openai",
+                models.Integration.is_active == True
             ).first()
             
+            if not integration:
+                # Try agency-level integration
+                integration = db.query(models.AgencyIntegration).filter(
+                    models.AgencyIntegration.agency_id == client.agency_id
+                ).join(models.Integration).filter(
+                    models.Integration.name == "openai",
+                    models.Integration.is_active == True
+                ).first()
+            
             if integration:
-                config = json.loads(integration.config) if isinstance(integration.config, str) else integration.config
-                openai_api_key = config.get("apiKey")
+                if hasattr(integration, 'business_integration'):
+                    config = integration.business_integration.config
+                else:
+                    config = integration.agency_integration.config
+                openai_api_key = config.get("api_key")
         
         if not openai_api_key:
             raise HTTPException(status_code=400, detail="OpenAI API key not found. Please configure an OpenAI integration.")
@@ -181,7 +246,7 @@ def generate_business_profile(
         user_prompt = f"""
         Please analyze the following client questionnaire responses and generate a comprehensive business profile:
         
-        {json.dumps(client.questionnaire_responses, indent=2)}
+        {json.dumps(questionnaire_responses, indent=2)}
         
         Please provide the response in the following JSON structure:
         {{
@@ -266,9 +331,11 @@ def generate_business_profile(
         ai_response = response.choices[0].message.content
         business_profile = json.loads(ai_response)
         
-        # Save the generated profile
-        client.business_profile = business_profile
-        client.profile_generated_at = datetime.utcnow()
+        # Save the generated profile in onboarding_data
+        onboarding_data = client.onboarding_data or {}
+        onboarding_data['business_profile'] = business_profile
+        onboarding_data['profile_generated_at'] = datetime.utcnow().isoformat()
+        client.onboarding_data = onboarding_data
         client.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(client)
@@ -291,9 +358,13 @@ def get_client_stats(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    client = db.query(models.Client).filter(
-        models.Client.id == client_id,
-        models.Client.owner_id == current_user.id
+    # Check if user has access to this business
+    accessible_businesses = get_user_businesses(current_user, db)
+    business_ids = [b.id for b in accessible_businesses]
+    
+    client = db.query(models.Business).filter(
+        models.Business.id == client_id,
+        models.Business.id.in_(business_ids)
     ).first()
     
     if not client:
@@ -301,27 +372,36 @@ def get_client_stats(
     
     # Calculate questionnaire completion percentage
     questionnaire_completion = 0
-    if client.questionnaire_responses:
+    questionnaire_responses = client.onboarding_data.get('questionnaire_responses') if client.onboarding_data else None
+    if questionnaire_responses:
         total_categories = 12  # Total questionnaire categories
-        completed_categories = sum(1 for category in client.questionnaire_responses.values() if category)
+        completed_categories = sum(1 for category in questionnaire_responses.values() if category)
         questionnaire_completion = round((completed_categories / total_categories) * 100)
     
     # Get workflow statistics
-    workflow_count = db.query(models.Workflow).filter(models.Workflow.client_id == client_id).count()
+    workflow_count = db.query(models.WorkflowInstance).filter(models.WorkflowInstance.business_id == client_id).count()
     
     # Get recent workflow executions
-    recent_executions = db.query(models.WorkflowExecution).join(models.Workflow).filter(
-        models.Workflow.client_id == client_id
+    recent_executions = db.query(models.WorkflowExecution).join(models.WorkflowInstance).filter(
+        models.WorkflowInstance.business_id == client_id
     ).order_by(models.WorkflowExecution.created_at.desc()).limit(5).all()
+    
+    # Get credit information
+    credit_pool = db.query(models.CreditPool).filter(
+        models.CreditPool.business_id == client_id
+    ).first()
+    
+    has_business_profile = bool(client.onboarding_data.get('business_profile') if client.onboarding_data else False)
+    profile_generated_at = client.onboarding_data.get('profile_generated_at') if client.onboarding_data else None
     
     return {
         "client_id": client_id,
         "questionnaire_completion": questionnaire_completion,
-        "has_business_profile": bool(client.business_profile),
-        "profile_generated_at": client.profile_generated_at,
+        "has_business_profile": has_business_profile,
+        "profile_generated_at": profile_generated_at,
         "workflow_count": workflow_count,
-        "credits_used": client.credits_used,
-        "credits_remaining": client.credits_balance,
+        "credits_used": credit_pool.total_purchased - credit_pool.balance if credit_pool else 0,
+        "credits_remaining": credit_pool.balance if credit_pool else 0,
         "recent_executions": len(recent_executions),
         "last_activity": client.updated_at
     }

@@ -163,6 +163,30 @@ class Business(BusinessBase):
     class Config:
         from_attributes = True
 
+# =============================================================================
+# LEGACY CLIENT SCHEMAS (for backward compatibility)
+# =============================================================================
+
+class ClientBase(BusinessBase):
+    """Legacy Client schema - maps to Business for backward compatibility"""
+    pass
+
+class ClientCreate(BusinessCreate):
+    """Legacy Client creation schema - maps to Business for backward compatibility"""
+    pass
+
+class ClientUpdate(BusinessUpdate):
+    """Legacy Client update schema - maps to Business for backward compatibility"""
+    pass
+
+class Client(Business):
+    """Legacy Client schema - maps to Business for backward compatibility"""
+    pass
+
+class BusinessProfileGenerationRequest(BaseModel):
+    ai_model: str = "gpt-4"
+    include_assumptions: bool = True
+
 class BusinessUserBase(BaseModel):
     role: Literal['owner', 'manager', 'viewer']
     permissions: Optional[Dict[str, Any]] = {}
