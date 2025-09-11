@@ -430,6 +430,38 @@ class WorkflowTemplate(WorkflowTemplateBase):
     class Config:
         from_attributes = True
 
+# =============================================================================
+# TASK TEMPLATE SCHEMAS (Legacy support)
+# =============================================================================
+
+class TaskTemplateBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    category: str
+    integration_id: Optional[int] = None
+    config_schema: Optional[Dict[str, Any]] = {}
+    credit_cost: int = 1
+
+class TaskTemplateCreate(TaskTemplateBase):
+    pass
+
+class TaskTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    integration_id: Optional[int] = None
+    config_schema: Optional[Dict[str, Any]] = None
+    credit_cost: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class TaskTemplate(TaskTemplateBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
 class WorkflowInstanceBase(BaseModel):
     template_id: int
     business_id: int
