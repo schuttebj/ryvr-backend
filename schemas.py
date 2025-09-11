@@ -344,7 +344,7 @@ class CreditTransactionBase(BaseModel):
     transaction_type: Literal['purchase', 'usage', 'refund', 'adjustment']
     amount: int
     description: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = {}
+    transaction_metadata: Optional[Dict[str, Any]] = {}
 
 class CreditTransactionCreate(CreditTransactionBase):
     business_id: Optional[int] = None

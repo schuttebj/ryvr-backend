@@ -322,7 +322,7 @@ class CreditTransaction(Base):
     amount = Column(Integer, nullable=False)  # positive for additions, negative for usage
     balance_after = Column(Integer, nullable=False)
     description = Column(String(255), nullable=True)
-    metadata = Column(JSON, default=dict)  # additional transaction data
+    transaction_metadata = Column(JSON, default=dict)  # additional transaction data
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
