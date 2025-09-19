@@ -343,28 +343,42 @@ class CreditTransaction(Base):
 # =============================================================================
 
 class WorkflowTemplate(Base):
-    """Admin-created workflow templates"""
+    """Workflow templates with V2 schema support (ryvr.workflow.v1)"""
     __tablename__ = "workflow_templates"
     
     id = Column(Integer, primary_key=True, index=True)
+    schema_version = Column(String(50), default="ryvr.workflow.v1")
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     category = Column(String(100), nullable=False)  # seo, ppc, content, analytics
     tags = Column(JSON, default=list)
-    config = Column(JSON, nullable=False)  # workflow definition
+    
+    # V2 Schema fields
+    workflow_config = Column(JSON, nullable=False)  # Complete workflow JSON (inputs, globals, steps, etc.)
+    execution_config = Column(JSON, nullable=False)  # Execution settings (mode, concurrency, timeouts)
+    tool_catalog = Column(JSON, nullable=True)      # Provider definitions for this workflow
+    
+    # RYVR-specific fields
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)  # If business-specific
+    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)     # If agency-specific
     credit_cost = Column(Integer, nullable=False, default=0)
     estimated_duration = Column(Integer, nullable=True)  # in minutes
     tier_access = Column(JSON, default=list)  # which tiers can access
+    
+    # Status and versioning
     status = Column(String(20), nullable=False, default='draft')  # draft, testing, beta, published, deprecated
     beta_users = Column(JSON, default=list)  # user IDs with beta access
     version = Column(String(20), default='1.0')
     icon = Column(String(100), nullable=True)
+    
+    # Audit fields
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     instances = relationship("WorkflowInstance", back_populates="template")
+    executions = relationship("WorkflowExecution", back_populates="template")
     
     __table_args__ = (
         CheckConstraint("status IN ('draft', 'testing', 'beta', 'published', 'deprecated')", name='check_workflow_status'),
@@ -392,25 +406,91 @@ class WorkflowInstance(Base):
     executions = relationship("WorkflowExecution", back_populates="instance")
 
 class WorkflowExecution(Base):
-    """Enhanced workflow execution tracking"""
+    """V2 workflow execution tracking with enhanced monitoring"""
     __tablename__ = "workflow_executions"
     
     id = Column(Integer, primary_key=True, index=True)
-    instance_id = Column(Integer, ForeignKey("workflow_instances.id"), nullable=False)
-    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)  # for direct queries
-    status = Column(String(20), default="pending")  # pending, running, completed, failed
+    template_id = Column(Integer, ForeignKey("workflow_templates.id"), nullable=False)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
+    
+    # Execution context
+    execution_mode = Column(String(20), default="simulate")  # simulate, record, live
+    runtime_state = Column(JSON, nullable=False)             # Complete execution state
+    step_results = Column(JSON, default=dict)                # Per-step outputs
+    
+    # Progress tracking
+    status = Column(String(20), default="pending")  # pending, running, completed, failed, paused
+    current_step = Column(String(100), nullable=True)
+    total_steps = Column(Integer, default=0)
+    completed_steps = Column(Integer, default=0)
+    
+    # Resource usage
     credits_used = Column(Integer, default=0)
-    execution_data = Column(JSON, default=dict)  # execution results and logs
-    error_message = Column(Text, nullable=True)
-    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    execution_time_ms = Column(Integer, default=0)
+    
+    # Timestamps
+    started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Error handling
+    error_message = Column(Text, nullable=True)
+    failed_step = Column(String(100), nullable=True)
     
     # Relationships
-    instance = relationship("WorkflowInstance", back_populates="executions")
-    api_calls = relationship("APICall", back_populates="execution")
+    template = relationship("WorkflowTemplate", back_populates="executions")
+    step_executions = relationship("WorkflowStepExecution", back_populates="execution")
     
     __table_args__ = (
-        CheckConstraint("status IN ('pending', 'running', 'completed', 'failed')", name='check_execution_status'),
+        CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'paused')", name='check_execution_status'),
+        CheckConstraint("execution_mode IN ('simulate', 'record', 'live')", name='check_execution_mode'),
+    )
+
+class WorkflowStepExecution(Base):
+    """Individual step execution tracking for detailed monitoring"""
+    __tablename__ = "workflow_step_executions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    execution_id = Column(Integer, ForeignKey("workflow_executions.id"), nullable=False)
+    
+    # Step identification
+    step_id = Column(String(100), nullable=False)     # Step ID from workflow
+    step_type = Column(String(50), nullable=False)    # task, ai, transform, foreach, gate, async_task
+    step_name = Column(String(200), nullable=True)
+    
+    # Execution details
+    status = Column(String(20), default="pending")    # pending, running, completed, failed, skipped
+    input_data = Column(JSON, nullable=True)
+    output_data = Column(JSON, nullable=True)
+    error_data = Column(JSON, nullable=True)
+    
+    # Performance metrics
+    credits_used = Column(Integer, default=0)
+    execution_time_ms = Column(Integer, default=0)
+    retry_count = Column(Integer, default=0)
+    
+    # Provider information
+    provider_id = Column(String(50), nullable=True)
+    operation_id = Column(String(100), nullable=True)
+    external_task_id = Column(String(100), nullable=True)  # For async operations
+    
+    # Async operation tracking
+    is_async = Column(Boolean, default=False)
+    async_submit_time = Column(DateTime(timezone=True), nullable=True)
+    async_complete_time = Column(DateTime(timezone=True), nullable=True)
+    polling_count = Column(Integer, default=0)
+    
+    # Timestamps
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    execution = relationship("WorkflowExecution", back_populates="step_executions")
+    
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'skipped')", name='check_step_status'),
+        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task')", name='check_step_type'),
     )
 
 # =============================================================================
@@ -418,7 +498,7 @@ class WorkflowExecution(Base):
 # =============================================================================
 
 class Integration(Base):
-    """System-level integrations"""
+    """System-level integrations with V2 workflow support"""
     __tablename__ = "integrations"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -427,8 +507,26 @@ class Integration(Base):
     integration_type = Column(String(20), nullable=False)  # system, agency, business
     level = Column(String(20), nullable=False)  # system, agency, business (which level can configure)
     config_schema = Column(JSON, default=dict)  # configuration schema
+    
+    # V2 Workflow support
+    provider_id = Column(String(50), nullable=True)     # Maps to tool catalog provider.id
+    operation_configs = Column(JSON, default=dict)      # Available operations with schemas
+    credit_multiplier = Column(Float, default=1.0)      # Cost adjustment factor
+    tier_restrictions = Column(JSON, default=list)      # Which tiers can use this integration
+    
+    # Universal async support
+    is_async_capable = Column(Boolean, default=False)   # Supports async operations
+    async_config = Column(JSON, nullable=True)          # Default async configuration
+    max_concurrent_requests = Column(Integer, default=5) # Rate limiting
+    default_timeout_seconds = Column(Integer, default=300) # Default operation timeout
+    
+    # Status and testing
     is_active = Column(Boolean, default=True)
     is_mock = Column(Boolean, default=False)  # for demo purposes
+    last_health_check = Column(DateTime(timezone=True), nullable=True)
+    health_status = Column(String(20), default="unknown")  # healthy, degraded, failed, unknown
+    
+    # Audit fields
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -439,6 +537,7 @@ class Integration(Base):
     __table_args__ = (
         CheckConstraint("integration_type IN ('system', 'agency', 'business')", name='check_integration_type'),
         CheckConstraint("level IN ('system', 'agency', 'business')", name='check_integration_level'),
+        CheckConstraint("health_status IN ('healthy', 'degraded', 'failed', 'unknown')", name='check_health_status'),
     )
 
 class AgencyIntegration(Base):
