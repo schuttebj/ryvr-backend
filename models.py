@@ -440,6 +440,7 @@ class WorkflowExecution(Base):
     # Relationships
     template = relationship("WorkflowTemplate", back_populates="executions")
     step_executions = relationship("WorkflowStepExecution", back_populates="execution")
+    api_calls = relationship("APICall", back_populates="execution")
     
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'paused')", name='check_execution_status'),
