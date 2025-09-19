@@ -403,7 +403,7 @@ class WorkflowInstance(Base):
     # Relationships
     template = relationship("WorkflowTemplate", back_populates="instances")
     business = relationship("Business", back_populates="workflow_instances")
-    executions = relationship("WorkflowExecution", back_populates="instance")
+    # Note: WorkflowExecution now relates directly to templates in V2, not instances
 
 class WorkflowExecution(Base):
     """V2 workflow execution tracking with enhanced monitoring"""
