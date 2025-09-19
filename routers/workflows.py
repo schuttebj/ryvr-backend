@@ -15,7 +15,7 @@ from auth import (
 import models, schemas
 from services.expression_engine import expression_engine, context_builder
 from services.data_transformation_service import data_transformation_service
-from services.async_step_executor import AsyncStepExecutor
+# from services.async_step_executor import AsyncStepExecutor  # TODO: Enable when integration service is ready
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

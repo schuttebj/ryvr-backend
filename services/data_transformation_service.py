@@ -32,12 +32,6 @@ class DataTransformationService:
     """
     
     def __init__(self):
-        self.extractors = {
-            'path': self._extract_by_path,
-            'filter': self._extract_by_filter,
-            'map': self._extract_by_mapping
-        }
-        
         self.aggregators = {
             'sum': self._aggregate_sum,
             'avg': self._aggregate_avg,
