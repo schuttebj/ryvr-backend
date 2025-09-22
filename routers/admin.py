@@ -394,12 +394,25 @@ async def get_dashboard_stats(current_user: models.User = Depends(get_current_ad
         agency_users = db.query(models.User).filter(models.User.role.like("agency_%")).count()
         business_users = db.query(models.User).filter(models.User.role == "business_user").count()
         
+        # Agency statistics
+        total_agencies = db.query(models.Agency).count()
+        agencies_with_businesses = db.query(models.Agency).join(models.Business).distinct().count()
+        
+        # Business statistics  
+        total_businesses = db.query(models.Business).count()
+        
         # Workflow statistics
         total_templates = db.query(models.WorkflowTemplate).count()
         published_templates = db.query(models.WorkflowTemplate).filter(
             models.WorkflowTemplate.status == "published"
         ).count()
         total_executions = db.query(models.WorkflowExecution).count()
+        
+        # Calculate success rate from recent executions
+        completed_executions = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.status == "completed"
+        ).count()
+        success_rate = round((completed_executions / max(total_executions, 1)) * 100)
         
         # System statistics
         total_integrations = db.query(models.Integration).count()
@@ -409,17 +422,35 @@ async def get_dashboard_stats(current_user: models.User = Depends(get_current_ad
         
         db.close()
         
+        # Return data matching frontend's DashboardStats interface
         return {
             "users": {
                 "total": total_users,
-                "admins": admin_users,
-                "agencies": agency_users,
-                "businesses": business_users
+                "admin": admin_users,  # Frontend expects "admin" not "admins"
+                "agency": agency_users,  # Frontend expects "agency" not "agencies"
+                "individual": business_users  # Frontend expects "individual" not "businesses"
+            },
+            "agencies": {
+                "total": total_agencies,
+                "with_businesses": agencies_with_businesses
+            },
+            "businesses": {
+                "total": total_businesses
             },
             "workflows": {
-                "templates": total_templates,
-                "published": published_templates,
-                "executions": total_executions
+                "templates": {
+                    "total": total_templates,
+                    "published": published_templates
+                },
+                "instances": 0,  # Placeholder - would need WorkflowInstance model
+                "executions_30d": total_executions,  # Using total as placeholder for 30-day count
+                "success_rate": success_rate
+            },
+            "credits": {
+                "total_pools": 0,  # Placeholder - would need Credit/Pool models
+                "total_distributed": 0,
+                "total_used": 0,
+                "utilization_rate": 0
             },
             "integrations": {
                 "total": total_integrations,
