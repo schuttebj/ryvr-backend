@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 
 from database import get_db
-from models_simple import Integration, SimpleWorkflow, WorkflowExecution
+import models
 
 router = APIRouter(prefix="/api/simple", tags=["simple"])
 
@@ -14,15 +14,16 @@ router = APIRouter(prefix="/api/simple", tags=["simple"])
 @router.get("/integrations", response_model=List[Dict[str, Any]])
 def get_integrations(db: Session = Depends(get_db)):
     """Get all system-wide integrations"""
-    integrations = db.query(Integration).all()
+    integrations = db.query(models.Integration).all()
     return [
         {
             "id": integration.id,
             "name": integration.name,
-            "type": integration.type,
-            "status": integration.status,
-            "config": integration.config,
-            "last_tested": integration.last_tested,
+            "provider": integration.provider,
+            "integration_type": integration.integration_type,
+            "level": integration.level,
+            "is_active": integration.is_active,
+            "config_schema": integration.config_schema,
             "created_at": integration.created_at,
             "updated_at": integration.updated_at,
         }
@@ -32,13 +33,13 @@ def get_integrations(db: Session = Depends(get_db)):
 @router.post("/integrations")
 def create_integration(integration_data: Dict[str, Any], db: Session = Depends(get_db)):
     """Create a new system-wide integration"""
-    integration = Integration(
-        id=integration_data["id"],
+    integration = models.Integration(
         name=integration_data["name"],
-        type=integration_data["type"],
-        status=integration_data.get("status", "disconnected"),
-        config=integration_data.get("config", {}),
-        last_tested=integration_data.get("last_tested"),
+        provider=integration_data["provider"],
+        integration_type=integration_data.get("integration_type", "system"),
+        level=integration_data.get("level", "system"),
+        is_active=integration_data.get("is_active", True),
+        config_schema=integration_data.get("config_schema", {}),
     )
     
     db.add(integration)
