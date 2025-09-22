@@ -97,8 +97,8 @@ async def create_workflow_template(
         # Validate schema version
         schema_version = template_data.get("schema_version", "ryvr.workflow.v1")
         if schema_version != "ryvr.workflow.v1":
-        raise HTTPException(
-            status_code=400, 
+            raise HTTPException(
+                status_code=400, 
                 detail=f"Unsupported schema version: {schema_version}"
             )
         
