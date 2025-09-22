@@ -396,7 +396,8 @@ async def get_dashboard_stats(current_user: models.User = Depends(get_current_ad
         
         # Agency statistics
         total_agencies = db.query(models.Agency).count()
-        agencies_with_businesses = db.query(models.Agency).join(models.Business).distinct().count()
+        # Fix: Use distinct on specific column to avoid JSON equality issues
+        agencies_with_businesses = db.query(models.Agency.id).join(models.Business).distinct().count()
         
         # Business statistics  
         total_businesses = db.query(models.Business).count()
@@ -623,4 +624,41 @@ async def update_user_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update user status: {str(e)}"
+        )
+
+@router.get("/integrations")
+async def get_integrations(
+    current_user: models.User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get system integrations
+    
+    Returns list of all integrations for admin management.
+    """
+    try:
+        integrations = db.query(models.Integration).all()
+        
+        return {
+            "integrations": [
+                {
+                    "id": integration.id,
+                    "name": integration.name,
+                    "provider": integration.provider,
+                    "integration_type": integration.integration_type,
+                    "level": integration.level,
+                    "is_active": integration.is_active,
+                    "config_schema": integration.config_schema,
+                    "created_at": integration.created_at,
+                    "updated_at": integration.updated_at
+                }
+                for integration in integrations
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get integrations: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get integrations: {str(e)}"
         )
