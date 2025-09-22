@@ -521,78 +521,261 @@ def create_sample_workflow_templates():
             db.close()
             return False
         
-        # Sample workflow templates
+        # Sample workflow templates with V2 schema
         templates = [
             {
                 'name': 'Basic SEO Analysis',
                 'description': 'Comprehensive SEO analysis including keyword research and competitor analysis',
                 'category': 'seo',
                 'tags': ['seo', 'analysis', 'keywords'],
-                'config': {
-                    'nodes': [
-                        {'id': '1', 'type': 'seo_serp_analyze', 'label': 'SERP Analysis'},
-                        {'id': '2', 'type': 'seo_keywords_volume', 'label': 'Keyword Volume'},
-                        {'id': '3', 'type': 'ai_analysis', 'label': 'AI Insights'}
-                    ],
-                    'edges': [
-                        {'id': 'e1', 'source': '1', 'target': '2'},
-                        {'id': 'e2', 'source': '2', 'target': '3'}
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "primary_keyword": {
+                            "type": "string",
+                            "required": True,
+                            "description": "Primary keyword to analyze"
+                        },
+                        "location_code": {
+                            "type": "integer", 
+                            "default": 2840,
+                            "description": "Location code for SERP analysis"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "serp_analysis",
+                            "type": "api_call",
+                            "name": "SERP Analysis",
+                            "connection_id": "dataforseo",
+                            "operation": "serp_google_organic",
+                            "input": {
+                                "bindings": {
+                                    "keyword": "expr: $.inputs.primary_keyword",
+                                    "location_code": "expr: $.inputs.location_code"
+                                }
+                            },
+                            "projection": {
+                                "top_results": "expr: @.organic[:10]",
+                                "total_results": "expr: @.total_count"
+                            }
+                        },
+                        {
+                            "id": "keyword_analysis", 
+                            "type": "api_call",
+                            "name": "Keyword Volume Analysis",
+                            "connection_id": "dataforseo",
+                            "operation": "keyword_research",
+                            "depends_on": ["serp_analysis"],
+                            "input": {
+                                "bindings": {
+                                    "seed_keyword": "expr: $.inputs.primary_keyword"
+                                }
+                            },
+                            "projection": {
+                                "keywords": "expr: @.keywords[:20]",
+                                "total_volume": "expr: sum(@.keywords[].search_volume)"
+                            }
+                        },
+                        {
+                            "id": "ai_insights",
+                            "type": "api_call", 
+                            "name": "AI Analysis",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "depends_on": ["serp_analysis", "keyword_analysis"],
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Analyze SEO data for keyword: ' + $.inputs.primary_keyword + '. SERP results: ' + to_string($.steps.serp_analysis.top_results) + '. Keywords: ' + to_string($.steps.keyword_analysis.keywords)"
+                                }
+                            }
+                        }
                     ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 3,
+                    "timeout_seconds": 300,
+                    "dry_run": False
                 },
                 'credit_cost': 25,
                 'estimated_duration': 15,
                 'tier_access': ['starter', 'professional', 'enterprise'],
                 'status': 'published',
-                'version': '1.0',
+                'version': '2.0',
                 'icon': 'search',
                 'created_by': admin_user.id
             },
             {
-                'name': 'Content Creation Workflow',
+                'name': 'AI Content Creation',
                 'description': 'AI-powered content creation with SEO optimization',
                 'category': 'content',
                 'tags': ['content', 'ai', 'seo'],
-                'config': {
-                    'nodes': [
-                        {'id': '1', 'type': 'client_profile', 'label': 'Load Client Data'},
-                        {'id': '2', 'type': 'ai_content_seo', 'label': 'Generate Content'},
-                        {'id': '3', 'type': 'ai_analysis', 'label': 'Review Content'}
-                    ],
-                    'edges': [
-                        {'id': 'e1', 'source': '1', 'target': '2'},
-                        {'id': 'e2', 'source': '2', 'target': '3'}
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "topic": {
+                            "type": "string",
+                            "required": True,
+                            "description": "Content topic"
+                        },
+                        "target_keywords": {
+                            "type": "string",
+                            "required": False,
+                            "description": "Target keywords (comma-separated)"
+                        },
+                        "content_type": {
+                            "type": "select",
+                            "options": ["blog", "article", "social", "ad_copy"],
+                            "default": "blog",
+                            "description": "Type of content to create"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "keyword_research",
+                            "type": "api_call",
+                            "name": "Keyword Research",
+                            "connection_id": "dataforseo", 
+                            "operation": "keyword_research",
+                            "input": {
+                                "bindings": {
+                                    "seed_keyword": "expr: $.inputs.topic"
+                                }
+                            },
+                            "projection": {
+                                "top_keywords": "expr: @.keywords[:10]"
+                            }
+                        },
+                        {
+                            "id": "content_generation",
+                            "type": "api_call",
+                            "name": "Generate Content",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "depends_on": ["keyword_research"],
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Create ' + $.inputs.content_type + ' content about: ' + $.inputs.topic + '. Include these keywords: ' + to_string($.steps.keyword_research.top_keywords)",
+                                    "max_tokens": 1500
+                                }
+                            }
+                        },
+                        {
+                            "id": "content_optimization",
+                            "type": "api_call",
+                            "name": "Optimize Content",
+                            "connection_id": "openai", 
+                            "operation": "content_analysis",
+                            "depends_on": ["content_generation"],
+                            "input": {
+                                "bindings": {
+                                    "content": "expr: $.steps.content_generation.data",
+                                    "analysis_type": ["seo", "readability"]
+                                }
+                            }
+                        }
                     ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 2,
+                    "timeout_seconds": 240,
+                    "dry_run": False
                 },
                 'credit_cost': 15,
                 'estimated_duration': 10,
                 'tier_access': ['professional', 'enterprise'],
                 'status': 'published',
-                'version': '1.0',
+                'version': '2.0',
                 'icon': 'edit',
                 'created_by': admin_user.id
             },
             {
                 'name': 'Competitor Analysis Suite',
-                'description': 'Complete competitor analysis including backlinks and keywords',
+                'description': 'Complete competitor analysis including SERP positioning and keyword gaps',
                 'category': 'analysis',
                 'tags': ['competitors', 'analysis', 'seo'],
-                'config': {
-                    'nodes': [
-                        {'id': '1', 'type': 'seo_labs_serp_competitors', 'label': 'Find Competitors'},
-                        {'id': '2', 'type': 'seo_backlinks_competitors', 'label': 'Backlink Analysis'},
-                        {'id': '3', 'type': 'ai_analysis', 'label': 'Generate Report'}
-                    ],
-                    'edges': [
-                        {'id': 'e1', 'source': '1', 'target': '2'},
-                        {'id': 'e2', 'source': '2', 'target': '3'}
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "target_keyword": {
+                            "type": "string",
+                            "required": True,
+                            "description": "Keyword to analyze competitors for"
+                        },
+                        "own_domain": {
+                            "type": "string",
+                            "required": False,
+                            "description": "Your domain to compare against"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "serp_competitors",
+                            "type": "api_call",
+                            "name": "Find SERP Competitors",
+                            "connection_id": "dataforseo",
+                            "operation": "serp_google_organic",
+                            "input": {
+                                "bindings": {
+                                    "keyword": "expr: $.inputs.target_keyword",
+                                    "depth": 50
+                                }
+                            },
+                            "projection": {
+                                "competitors": "expr: @.organic[:10]",
+                                "top_domains": "expr: unique(@.organic[].domain)"
+                            }
+                        },
+                        {
+                            "id": "keyword_gaps",
+                            "type": "api_call",
+                            "name": "Keyword Gap Analysis",
+                            "connection_id": "dataforseo",
+                            "operation": "keyword_research",
+                            "depends_on": ["serp_competitors"],
+                            "input": {
+                                "bindings": {
+                                    "seed_keyword": "expr: $.inputs.target_keyword",
+                                    "limit": 100
+                                }
+                            },
+                            "projection": {
+                                "keyword_opportunities": "expr: @.keywords[?search_volume > 1000]"
+                            }
+                        },
+                        {
+                            "id": "competitor_report",
+                            "type": "api_call",
+                            "name": "Generate Competitor Report",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "depends_on": ["serp_competitors", "keyword_gaps"],
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Create a competitor analysis report for keyword: ' + $.inputs.target_keyword + '. Top competitors: ' + to_string($.steps.serp_competitors.top_domains) + '. Keyword opportunities: ' + to_string($.steps.keyword_gaps.keyword_opportunities[:5])",
+                                    "max_tokens": 2000
+                                }
+                            }
+                        }
                     ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 2,
+                    "timeout_seconds": 360,
+                    "dry_run": False
                 },
                 'credit_cost': 50,
                 'estimated_duration': 30,
                 'tier_access': ['enterprise'],
                 'status': 'beta',
                 'beta_users': [admin_user.id],
-                'version': '1.0',
+                'version': '2.0',
                 'icon': 'trending_up',
                 'created_by': admin_user.id
             }
