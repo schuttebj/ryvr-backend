@@ -97,8 +97,8 @@ async def create_workflow_template(
         # Validate schema version
         schema_version = template_data.get("schema_version", "ryvr.workflow.v1")
         if schema_version != "ryvr.workflow.v1":
-        raise HTTPException(
-            status_code=400, 
+            raise HTTPException(
+                status_code=400, 
                 detail=f"Unsupported schema version: {schema_version}"
             )
         
@@ -360,13 +360,13 @@ async def delete_workflow_template(
 ):
     """Delete a workflow template"""
     try:
-    template = db.query(models.WorkflowTemplate).filter(
-        models.WorkflowTemplate.id == template_id
-    ).first()
-    
-    if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
-    
+        template = db.query(models.WorkflowTemplate).filter(
+            models.WorkflowTemplate.id == template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        
         # Check permissions - only allow delete if user created it or is admin
         if template.created_by != current_user.id and current_user.role != "admin":
             raise HTTPException(status_code=403, detail="Permission denied")
@@ -375,8 +375,8 @@ async def delete_workflow_template(
         running_executions = db.query(models.WorkflowExecution).filter(
             models.WorkflowExecution.template_id == template_id,
             models.WorkflowExecution.status.in_(["pending", "running"])
-    ).first()
-    
+        ).first()
+        
         if running_executions:
             raise HTTPException(
                 status_code=400, 
@@ -567,9 +567,9 @@ async def get_execution_status(
         if not execution:
             raise HTTPException(status_code=404, detail="Execution not found")
     
-    # Verify business access
+        # Verify business access
         if not verify_business_access(db, current_user, execution.business_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+            raise HTTPException(status_code=403, detail="Access denied")
     
         # Get step executions
         step_executions = db.query(models.WorkflowStepExecution).filter(
@@ -735,7 +735,7 @@ async def _execute_workflow_steps(
         
         # Complete execution if all steps succeeded
         if execution.status == "running":
-    execution.status = "completed"
+            execution.status = "completed"
             execution.completed_at = datetime.utcnow()
         
         execution.step_results = step_results
@@ -752,7 +752,7 @@ async def _execute_workflow_steps(
         execution.status = "failed"
         execution.error_message = str(e)
         execution.completed_at = datetime.utcnow()
-    db.commit()
+        db.commit()
         raise
 
 
