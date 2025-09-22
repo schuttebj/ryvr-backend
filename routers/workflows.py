@@ -97,8 +97,8 @@ async def create_workflow_template(
         # Validate schema version
         schema_version = template_data.get("schema_version", "ryvr.workflow.v1")
         if schema_version != "ryvr.workflow.v1":
-            raise HTTPException(
-                status_code=400, 
+        raise HTTPException(
+            status_code=400, 
                 detail=f"Unsupported schema version: {schema_version}"
             )
         
@@ -352,6 +352,206 @@ async def execute_workflow(
         raise HTTPException(status_code=500, detail="Execution failed")
 
 
+@router.delete("/templates/{template_id}")
+async def delete_workflow_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Delete a workflow template"""
+    try:
+    template = db.query(models.WorkflowTemplate).filter(
+        models.WorkflowTemplate.id == template_id
+    ).first()
+    
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+        # Check permissions - only allow delete if user created it or is admin
+        if template.created_by != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # Check if template has running executions
+        running_executions = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.template_id == template_id,
+            models.WorkflowExecution.status.in_(["pending", "running"])
+    ).first()
+    
+        if running_executions:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete template with running executions"
+            )
+        
+        # Delete the template
+        db.delete(template)
+        db.commit()
+        
+        logger.info(f"Deleted workflow template {template_id} by user {current_user.id}")
+        
+        return {"message": "Template deleted successfully", "id": template_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete workflow template: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete template")
+
+
+@router.get("/tool-catalog")
+async def get_tool_catalog(
+    provider: Optional[str] = None,
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get available tools/integrations with dynamic field definitions"""
+    try:
+        # This would eventually come from a database or config
+        # For now, let's create a comprehensive tool catalog
+        
+        tool_catalog = {
+            "schema_version": "ryvr.tools.v1",
+            "providers": {
+                "dataforseo": {
+                    "name": "DataForSEO",
+                    "description": "SEO and SERP data provider",
+                    "category": "seo",
+                    "auth_type": "api_key",
+                    "operations": {
+                        "serp_google_organic": {
+                            "name": "Google SERP Analysis",
+                            "description": "Get Google organic search results",
+                            "is_async": True,
+                            "base_credits": 5,
+                            "fields": [
+                                {"name": "keyword", "type": "string", "required": True, "description": "Search keyword"},
+                                {"name": "location_code", "type": "integer", "required": False, "default": 2840, "description": "Location code (US=2840)"},
+                                {"name": "language_code", "type": "string", "required": False, "default": "en", "description": "Language code"},
+                                {"name": "device", "type": "select", "options": ["desktop", "mobile"], "default": "desktop", "description": "Device type"},
+                                {"name": "depth", "type": "integer", "required": False, "default": 100, "min": 1, "max": 700, "description": "Number of results to return"}
+                            ],
+                            "async_config": {
+                                "submit_operation": "post_serp_task",
+                                "check_operation": "get_serp_results",
+                                "polling_interval_seconds": 10,
+                                "max_wait_seconds": 300,
+                                "completion_check": "expr: @.tasks[0].status == 'completed'",
+                                "result_path": "expr: @.tasks[0].result",
+                                "task_id_path": "expr: @.tasks[0].id"
+                            }
+                        },
+                        "keyword_research": {
+                            "name": "Keyword Research",
+                            "description": "Get keyword suggestions and data",
+                            "is_async": True,
+                            "base_credits": 3,
+                            "fields": [
+                                {"name": "seed_keyword", "type": "string", "required": True, "description": "Base keyword for research"},
+                                {"name": "location_code", "type": "integer", "required": False, "default": 2840},
+                                {"name": "include_serp_info", "type": "boolean", "default": True, "description": "Include SERP information"},
+                                {"name": "limit", "type": "integer", "default": 1000, "min": 1, "max": 1000, "description": "Max keywords to return"}
+                            ]
+                        }
+                    }
+                },
+                "openai": {
+                    "name": "OpenAI",
+                    "description": "AI text generation and analysis",
+                    "category": "ai",
+                    "auth_type": "api_key",
+                    "operations": {
+                        "chat_completion": {
+                            "name": "AI Text Generation",
+                            "description": "Generate text using ChatGPT",
+                            "is_async": False,
+                            "base_credits": 1,
+                            "fields": [
+                                {"name": "prompt", "type": "textarea", "required": True, "description": "Text prompt for AI"},
+                                {"name": "model", "type": "select", "options": ["gpt-4", "gpt-3.5-turbo"], "default": "gpt-3.5-turbo", "description": "AI model to use"},
+                                {"name": "max_tokens", "type": "integer", "default": 500, "min": 1, "max": 4000, "description": "Maximum response length"},
+                                {"name": "temperature", "type": "number", "default": 0.7, "min": 0, "max": 2, "step": 0.1, "description": "Creativity level (0=conservative, 2=creative)"}
+                            ]
+                        },
+                        "content_analysis": {
+                            "name": "Content Analysis",
+                            "description": "Analyze text for sentiment, topics, etc.",
+                            "is_async": False,
+                            "base_credits": 2,
+                            "fields": [
+                                {"name": "content", "type": "textarea", "required": True, "description": "Content to analyze"},
+                                {"name": "analysis_type", "type": "multiselect", "options": ["sentiment", "topics", "keywords", "readability"], "description": "Types of analysis to perform"}
+                            ]
+                        }
+                    }
+                },
+                "transform": {
+                    "name": "Data Transformation",
+                    "description": "Built-in data processing and transformation",
+                    "category": "data",
+                    "auth_type": "none",
+                    "operations": {
+                        "extract_data": {
+                            "name": "Extract Data Fields",
+                            "description": "Extract specific fields from data using JMESPath",
+                            "is_async": False,
+                            "base_credits": 0,
+                            "fields": [
+                                {"name": "source_field", "type": "string", "required": True, "description": "Source data field or JMESPath expression"},
+                                {"name": "output_name", "type": "string", "required": True, "description": "Name for extracted data"},
+                                {"name": "description", "type": "string", "required": False, "description": "Description of extraction"}
+                            ]
+                        },
+                        "aggregate_data": {
+                            "name": "Aggregate Data",
+                            "description": "Perform calculations on data arrays",
+                            "is_async": False,
+                            "base_credits": 0,
+                            "fields": [
+                                {"name": "source_array", "type": "string", "required": True, "description": "Array field to aggregate"},
+                                {"name": "function", "type": "select", "options": ["sum", "avg", "count", "min", "max", "first", "last"], "required": True, "description": "Aggregation function"},
+                                {"name": "output_name", "type": "string", "required": True, "description": "Name for result"}
+                            ]
+                        },
+                        "format_data": {
+                            "name": "Format Data",
+                            "description": "Format data as CSV, JSON, or other formats",
+                            "is_async": False,
+                            "base_credits": 0,
+                            "fields": [
+                                {"name": "source_data", "type": "string", "required": True, "description": "Data to format"},
+                                {"name": "format_type", "type": "select", "options": ["join", "split", "upper", "lower", "csv"], "required": True, "description": "Format operation"},
+                                {"name": "separator", "type": "string", "default": ", ", "description": "Separator for join/split operations"},
+                                {"name": "output_name", "type": "string", "required": True, "description": "Name for formatted result"}
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Filter by provider if specified
+        if provider:
+            if provider in tool_catalog["providers"]:
+                tool_catalog["providers"] = {provider: tool_catalog["providers"][provider]}
+            else:
+                tool_catalog["providers"] = {}
+        
+        # Filter by category if specified  
+        if category:
+            filtered_providers = {}
+            for provider_id, provider_data in tool_catalog["providers"].items():
+                if provider_data.get("category") == category:
+                    filtered_providers[provider_id] = provider_data
+            tool_catalog["providers"] = filtered_providers
+        
+        return tool_catalog
+        
+    except Exception as e:
+        logger.error(f"Failed to get tool catalog: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get tool catalog")
+
+
 @router.get("/executions/{execution_id}")
 async def get_execution_status(
     execution_id: int,
@@ -362,15 +562,15 @@ async def get_execution_status(
     try:
         execution = db.query(models.WorkflowExecution).filter(
             models.WorkflowExecution.id == execution_id
-        ).first()
-        
+    ).first()
+    
         if not execution:
             raise HTTPException(status_code=404, detail="Execution not found")
-        
-        # Verify business access
+    
+    # Verify business access
         if not verify_business_access(db, current_user, execution.business_id):
-            raise HTTPException(status_code=403, detail="Access denied")
-        
+        raise HTTPException(status_code=403, detail="Access denied")
+    
         # Get step executions
         step_executions = db.query(models.WorkflowStepExecution).filter(
             models.WorkflowStepExecution.execution_id == execution_id
@@ -502,8 +702,8 @@ async def _execute_workflow_steps_v2(
                 # Execute based on step type
                 if step_type == "transform":
                     result = _execute_transform_step(step, context)
-                elif step_type in ["task", "ai"]:
-                    result = _execute_api_step(step, context)
+                elif step_type in ["task", "ai", "async_task"]:
+                    result = await _execute_api_step(step, context, db, execution.business_id)
                 else:
                     result = {"message": f"Step type {step_type} not implemented yet"}
                 
@@ -535,7 +735,7 @@ async def _execute_workflow_steps_v2(
         
         # Complete execution if all steps succeeded
         if execution.status == "running":
-            execution.status = "completed"
+    execution.status = "completed"
             execution.completed_at = datetime.utcnow()
         
         execution.step_results = step_results
@@ -552,7 +752,7 @@ async def _execute_workflow_steps_v2(
         execution.status = "failed"
         execution.error_message = str(e)
         execution.completed_at = datetime.utcnow()
-        db.commit()
+    db.commit()
         raise
 
 
@@ -566,9 +766,38 @@ def _execute_transform_step(step: Dict[str, Any], context: Dict[str, Any]) -> Di
         # Get data from first dependency
         source_step = depends_on[0]
         input_data = context.get("steps", {}).get(source_step, {}).get("output")
+        if input_data is None:
+            raise ValueError(f"No output data available from dependency step: {source_step}")
     else:
-        # Use test data if no dependencies
-        input_data = [{"id": 1, "value": 150}, {"id": 2, "value": 250}]
+        # Get input data from step's input bindings or workflow inputs
+        step_input = step.get("input", {})
+        input_bindings = step_input.get("bindings", {})
+        static_data = step_input.get("static", {})
+        
+        # Use static data if provided, otherwise get from context
+        if static_data:
+            input_data = static_data
+        elif input_bindings:
+            # Resolve input bindings using expression engine
+            input_data = {}
+            for key, expr in input_bindings.items():
+                try:
+                    if isinstance(expr, str) and expr.startswith("expr:"):
+                        # Evaluate JMESPath expression
+                        value = expression_engine.evaluate(expr[5:].strip(), context)
+                    else:
+                        # Use literal value
+                        value = expr
+                    input_data[key] = value
+                except Exception as e:
+                    logger.warning(f"Failed to resolve input binding {key}: {e}")
+                    input_data[key] = expr
+        else:
+            # Get from workflow inputs as fallback
+            input_data = context.get("inputs", {})
+    
+    if input_data is None:
+        raise ValueError("No input data available for transform step")
     
     # Apply transformations
     result = data_transformation_service.apply_transformations(
@@ -580,16 +809,80 @@ def _execute_transform_step(step: Dict[str, Any], context: Dict[str, Any]) -> Di
     return result
 
 
-def _execute_api_step(step: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute an API call step (simplified mock)"""
-    # This would integrate with the actual integration service
-    step_type = step.get("type")
-    operation = step.get("operation")
-    
-    # Mock result for demonstration
-    return {
-        "step_type": step_type,
-        "operation": operation,
-        "status": "completed",
-        "mock_data": "This would be real API response data"
-    }
+async def _execute_api_step(step: Dict[str, Any], context: Dict[str, Any], 
+                            db: Session, business_id: int) -> Dict[str, Any]:
+    """Execute an API call step using real integration service"""
+    try:
+        from services.integration_service import IntegrationService
+        
+        connection_id = step.get("connection_id")
+        operation = step.get("operation")
+        
+        if not connection_id:
+            raise ValueError("API step missing connection_id")
+        if not operation:
+            raise ValueError("API step missing operation")
+        
+        # Resolve input data for the API call
+        step_input = step.get("input", {})
+        input_bindings = step_input.get("bindings", {})
+        static_data = step_input.get("static", {})
+        
+        # Build input data from bindings and static data
+        input_data = {}
+        
+        # Add static data first
+        if static_data:
+            input_data.update(static_data)
+        
+        # Resolve input bindings using expression engine
+        if input_bindings:
+            for key, expr in input_bindings.items():
+                try:
+                    if isinstance(expr, str) and expr.startswith("expr:"):
+                        # Evaluate JMESPath expression against context
+                        value = expression_engine.evaluate(expr[5:].strip(), context)
+                    else:
+                        # Use literal value
+                        value = expr
+                    input_data[key] = value
+                except Exception as e:
+                    logger.warning(f"Failed to resolve input binding {key}: {e}")
+                    input_data[key] = expr
+        
+        # Initialize integration service
+        integration_service = IntegrationService(db)
+        
+        # Execute the integration
+        result = await integration_service.execute_integration(
+            integration_name=connection_id,
+            business_id=business_id,
+            operation=operation,
+            input_data=input_data
+        )
+        
+        if result.get("success"):
+            return {
+                "status": "completed",
+                "provider": result.get("provider"),
+                "data": result.get("data"),
+                "credits_used": result.get("credits_used", 0),
+                "operation": operation
+            }
+        else:
+            raise Exception(result.get("error", "Integration execution failed"))
+            
+    except ImportError:
+        logger.error("IntegrationService not available - using fallback")
+        # Fallback for when integration service is not available
+        return {
+            "status": "completed", 
+            "provider": step.get("connection_id", "unknown"),
+            "data": {"message": "Integration service not available - using fallback"},
+            "credits_used": 0,
+            "operation": step.get("operation"),
+            "fallback": True
+        }
+    except Exception as e:
+        logger.error(f"API step execution failed: {e}")
+        raise Exception(f"API step failed: {str(e)}")
