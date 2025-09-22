@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # =============================================================================
-# WORKFLOW V2 ENDPOINTS (Default)
+# WORKFLOW ENDPOINTS
 # =============================================================================
 
 @router.get("/templates", response_model=List[Dict[str, Any]])
@@ -34,7 +34,7 @@ async def list_workflow_templates(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """List workflow templates with V2 schema filtering"""
+    """List workflow templates with schema filtering"""
     try:
         query = db.query(models.WorkflowTemplate).filter(
             models.WorkflowTemplate.schema_version == "ryvr.workflow.v1"
@@ -92,13 +92,13 @@ async def create_workflow_template(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Create a new workflow template with V2 schema (ryvr.workflow.v1)"""
+    """Create a new workflow template (ryvr.workflow.v1 schema)"""
     try:
         # Validate schema version
         schema_version = template_data.get("schema_version", "ryvr.workflow.v1")
         if schema_version != "ryvr.workflow.v1":
-            raise HTTPException(
-                status_code=400, 
+        raise HTTPException(
+            status_code=400, 
                 detail=f"Unsupported schema version: {schema_version}"
             )
         
@@ -138,7 +138,7 @@ async def create_workflow_template(
         db.commit()
         db.refresh(template)
         
-        logger.info(f"Created workflow template V2: {template.id} - {name}")
+        logger.info(f"Created workflow template: {template.id} - {name}")
         
         return {
             "id": template.id,
@@ -156,7 +156,7 @@ async def create_workflow_template(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create workflow template V2: {e}")
+        logger.error(f"Failed to create workflow template: {e}")
         raise HTTPException(status_code=500, detail="Failed to create workflow template")
 
 
@@ -166,7 +166,7 @@ async def get_workflow_template(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Get a specific workflow template with V2 schema"""
+    """Get a specific workflow template"""
     try:
         template = db.query(models.WorkflowTemplate).filter(
             models.WorkflowTemplate.id == template_id,
@@ -201,7 +201,7 @@ async def get_workflow_template(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get workflow template V2: {e}")
+        logger.error(f"Failed to get workflow template: {e}")
         raise HTTPException(status_code=500, detail="Failed to get template")
 
 
@@ -211,7 +211,7 @@ async def validate_workflow_template(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Validate workflow template against V2 schema"""
+    """Validate workflow template against schema"""
     try:
         template = db.query(models.WorkflowTemplate).filter(
             models.WorkflowTemplate.id == template_id
@@ -240,7 +240,7 @@ async def validate_workflow_template(
             validation_errors.append("Workflow must have at least one step")
         
         for i, step in enumerate(steps):
-            step_errors = _validate_step_v2(step, i)
+            step_errors = _validate_step(step, i)
             validation_errors.extend(step_errors)
         
         # Validate dependencies
@@ -270,7 +270,7 @@ async def execute_workflow(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Execute a workflow template with V2 engine"""
+    """Execute a workflow template"""
     try:
         # Get template
         template = db.query(models.WorkflowTemplate).filter(
@@ -332,7 +332,7 @@ async def execute_workflow(
         db.refresh(execution)
         
         # Start execution (this would be async in production)
-        execution_result = await _execute_workflow_steps_v2(
+        execution_result = await _execute_workflow_steps(
             template, execution, db
         )
         
@@ -615,8 +615,8 @@ async def get_execution_status(
         raise HTTPException(status_code=500, detail="Failed to get execution status")
 
 
-# Helper functions for V2 workflow processing
-def _validate_step_v2(step: Dict[str, Any], step_index: int) -> List[str]:
+# Helper functions for workflow processing
+def _validate_step(step: Dict[str, Any], step_index: int) -> List[str]:
     """Validate a single workflow step"""
     errors = []
     
@@ -655,12 +655,12 @@ def _validate_step_dependencies(steps: List[Dict[str, Any]]) -> List[str]:
     return errors
 
 
-async def _execute_workflow_steps_v2(
+async def _execute_workflow_steps(
     template: models.WorkflowTemplate, 
     execution: models.WorkflowExecution, 
     db: Session
 ) -> Dict[str, Any]:
-    """Execute workflow steps using V2 engine (simplified version)"""
+    """Execute workflow steps using workflow engine"""
     try:
         execution.status = "running"
         execution.started_at = datetime.utcnow()
