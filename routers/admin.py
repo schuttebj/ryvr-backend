@@ -549,7 +549,18 @@ async def reset_database(
 async def initialize_database(
     current_user: models.User = Depends(get_current_admin_user)
 ):
-    """Initialize database with default data (subscription tiers, admin user, etc.)"""
+    """
+    Initialize database with default data (subscription tiers, admin user, integrations, workflow templates)
+    
+    This endpoint sets up a complete RYVR system with:
+    - Default subscription tiers (Starter, Professional, Enterprise)
+    - System admin user (admin@ryvr.com / password)
+    - System integrations (DataForSEO, OpenAI)
+    - Sample workflow templates with V2 schema
+    - Demo agency and business data
+    
+    Use this endpoint after database reset to get a fully functional system.
+    """
     try:
         from sqlalchemy.orm import sessionmaker
         from decimal import Decimal
@@ -668,12 +679,184 @@ async def initialize_database(
                 db.add(integration)
                 integration_count += 1
         
+        # Create workflow templates with V2 schema
+        workflow_templates = [
+            {
+                'name': 'Basic SEO Analysis',
+                'description': 'Comprehensive SEO analysis including keyword research and competitor analysis',
+                'category': 'seo',
+                'tags': ['seo', 'analysis', 'keywords'],
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "primary_keyword": {
+                            "type": "string",
+                            "required": True,
+                            "description": "Primary keyword to analyze"
+                        },
+                        "location_code": {
+                            "type": "integer", 
+                            "default": 2840,
+                            "description": "Location code for SERP analysis"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "serp_analysis",
+                            "type": "api_call",
+                            "name": "SERP Analysis",
+                            "connection_id": "dataforseo",
+                            "operation": "serp_google_organic",
+                            "input": {
+                                "bindings": {
+                                    "keyword": "expr: $.inputs.primary_keyword",
+                                    "location_code": "expr: $.inputs.location_code"
+                                }
+                            },
+                            "projection": {
+                                "top_results": "expr: @.organic[:10]",
+                                "total_results": "expr: @.total_count"
+                            }
+                        },
+                        {
+                            "id": "keyword_analysis", 
+                            "type": "api_call",
+                            "name": "Keyword Volume Analysis",
+                            "connection_id": "dataforseo",
+                            "operation": "keyword_research",
+                            "depends_on": ["serp_analysis"],
+                            "input": {
+                                "bindings": {
+                                    "seed_keyword": "expr: $.inputs.primary_keyword"
+                                }
+                            },
+                            "projection": {
+                                "keywords": "expr: @.keywords[:20]",
+                                "total_volume": "expr: sum(@.keywords[].search_volume)"
+                            }
+                        },
+                        {
+                            "id": "ai_insights",
+                            "type": "api_call", 
+                            "name": "AI Analysis",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "depends_on": ["serp_analysis", "keyword_analysis"],
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Analyze SEO data for keyword: ' + $.inputs.primary_keyword + '. SERP results: ' + to_string($.steps.serp_analysis.top_results) + '. Keywords: ' + to_string($.steps.keyword_analysis.keywords)"
+                                }
+                            }
+                        }
+                    ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 3,
+                    "timeout_seconds": 300,
+                    "dry_run": False
+                },
+                'credit_cost': 25,
+                'estimated_duration': 15,
+                'tier_access': ['starter', 'professional', 'enterprise'],
+                'status': 'published',
+                'version': '2.0',
+                'icon': 'search',
+                'created_by': admin_user.id
+            },
+            {
+                'name': 'AI Content Creation',
+                'description': 'AI-powered content creation with SEO optimization',
+                'category': 'content',
+                'tags': ['content', 'ai', 'seo'],
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "topic": {
+                            "type": "string",
+                            "required": True,
+                            "description": "Content topic"
+                        },
+                        "target_keywords": {
+                            "type": "string",
+                            "required": False,
+                            "description": "Target keywords (comma-separated)"
+                        },
+                        "content_type": {
+                            "type": "select",
+                            "options": ["blog", "article", "social", "ad_copy"],
+                            "default": "blog",
+                            "description": "Type of content to create"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "keyword_research",
+                            "type": "api_call",
+                            "name": "Keyword Research",
+                            "connection_id": "dataforseo", 
+                            "operation": "keyword_research",
+                            "input": {
+                                "bindings": {
+                                    "seed_keyword": "expr: $.inputs.topic"
+                                }
+                            },
+                            "projection": {
+                                "top_keywords": "expr: @.keywords[:10]"
+                            }
+                        },
+                        {
+                            "id": "content_generation",
+                            "type": "api_call",
+                            "name": "Generate Content",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "depends_on": ["keyword_research"],
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Create ' + $.inputs.content_type + ' content about: ' + $.inputs.topic + '. Include these keywords: ' + to_string($.steps.keyword_research.top_keywords)",
+                                    "max_tokens": 1500
+                                }
+                            }
+                        }
+                    ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 2,
+                    "timeout_seconds": 240,
+                    "dry_run": False
+                },
+                'credit_cost': 15,
+                'estimated_duration': 10,
+                'tier_access': ['professional', 'enterprise'],
+                'status': 'published',
+                'version': '2.0',
+                'icon': 'edit',
+                'created_by': admin_user.id
+            }
+        ]
+        
+        template_count = 0
+        for template_data in workflow_templates:
+            existing = db.query(models.WorkflowTemplate).filter(
+                models.WorkflowTemplate.name == template_data["name"]
+            ).first()
+            
+            if not existing:
+                template = models.WorkflowTemplate(**template_data)
+                db.add(template)
+                template_count += 1
+        
         db.commit()
         db.close()
         
         results.extend([
             f"Created {tier_count} subscription tiers",
-            f"Created {integration_count} system integrations"
+            f"Created {integration_count} system integrations",
+            f"Created {template_count} workflow templates"
         ])
         
         return {
@@ -690,6 +873,216 @@ async def initialize_database(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database initialization failed: {str(e)}"
+        )
+
+@router.post("/system/initialize")
+async def initialize_system():
+    """
+    Initialize system without authentication (for first-time setup)
+    
+    This endpoint creates the basic system structure when no admin exists yet:
+    - Creates admin user if none exists
+    - Sets up basic subscription tiers
+    - Initializes system integrations
+    - Creates default workflow templates
+    
+    This endpoint is intended for initial deployment setup and will fail if an admin user already exists.
+    """
+    try:
+        from sqlalchemy.orm import sessionmaker
+        from decimal import Decimal
+        
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        results = []
+        
+        # Check if admin already exists - if so, require authentication
+        existing_admin = db.query(models.User).filter(models.User.role == "admin").first()
+        if existing_admin:
+            db.close()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="System already initialized. Use /database/initialize with admin authentication."
+            )
+        
+        # Create admin user first
+        admin_user = models.User(
+            username="admin",
+            email="admin@ryvr.com",
+            first_name="System",
+            last_name="Administrator",
+            hashed_password=get_password_hash("password"),
+            role="admin",
+            is_active=True,
+            email_verified=True
+        )
+        db.add(admin_user)
+        db.flush()  # Get the ID before committing
+        results.append("Created admin user (username: admin, password: password)")
+        
+        # Create subscription tiers
+        tiers_data = [
+            {
+                "name": "Starter",
+                "slug": "starter", 
+                "price_monthly": Decimal("29.00"),
+                "price_yearly": Decimal("290.00"),
+                "credits_included": 5000,
+                "client_limit": 3,
+                "user_limit": 5,
+                "features": ["Basic workflows", "Standard integrations", "Email support"]
+            },
+            {
+                "name": "Professional", 
+                "slug": "professional",
+                "price_monthly": Decimal("99.00"),
+                "price_yearly": Decimal("990.00"), 
+                "credits_included": 20000,
+                "client_limit": 10,
+                "user_limit": 15,
+                "features": ["Advanced workflows", "All integrations", "Priority support", "White-labeling"]
+            },
+            {
+                "name": "Enterprise",
+                "slug": "enterprise",
+                "price_monthly": Decimal("299.00"),
+                "price_yearly": Decimal("2990.00"),
+                "credits_included": 100000,
+                "client_limit": -1,
+                "user_limit": -1,
+                "features": ["Custom workflows", "Dedicated support", "Custom integrations", "SLA"]
+            }
+        ]
+        
+        for tier_data in tiers_data:
+            tier = models.SubscriptionTier(**tier_data)
+            db.add(tier)
+        
+        # Create system integrations
+        system_integrations = [
+            {
+                "name": "DataForSEO",
+                "provider": "dataforseo",
+                "integration_type": "system",
+                "level": "system",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "username": {"type": "string"},
+                        "password": {"type": "string"},
+                        "base_url": {"type": "string", "default": "https://sandbox.dataforseo.com"}
+                    },
+                    "required": ["username", "password"]
+                },
+                "is_active": True
+            },
+            {
+                "name": "OpenAI",
+                "provider": "openai",
+                "integration_type": "system",
+                "level": "system", 
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "api_key": {"type": "string"},
+                        "model": {"type": "string", "default": "gpt-4"},
+                        "max_tokens": {"type": "integer", "default": 1000}
+                    },
+                    "required": ["api_key"]
+                },
+                "is_active": True
+            }
+        ]
+        
+        for int_data in system_integrations:
+            integration = models.Integration(**int_data)
+            db.add(integration)
+        
+        # Create sample workflow template
+        sample_template = {
+            'name': 'SEO Quick Analysis',
+            'description': 'Quick SEO analysis starter template',
+            'category': 'seo',
+            'tags': ['seo', 'starter'],
+            'schema_version': 'ryvr.workflow.v1',
+            'workflow_config': {
+                "inputs": {
+                    "keyword": {
+                        "type": "string",
+                        "required": True,
+                        "description": "Keyword to analyze"
+                    }
+                },
+                "globals": {},
+                "steps": [
+                    {
+                        "id": "serp_check",
+                        "type": "api_call",
+                        "name": "SERP Check",
+                        "connection_id": "dataforseo",
+                        "operation": "serp_google_organic",
+                        "input": {
+                            "bindings": {
+                                "keyword": "expr: $.inputs.keyword"
+                            }
+                        }
+                    }
+                ]
+            },
+            'execution_config': {
+                "execution_mode": "live",
+                "max_concurrency": 1,
+                "timeout_seconds": 120,
+                "dry_run": False
+            },
+            'credit_cost': 5,
+            'estimated_duration': 5,
+            'tier_access': ['starter', 'professional', 'enterprise'],
+            'status': 'published',
+            'version': '2.0',
+            'icon': 'search',
+            'created_by': admin_user.id
+        }
+        
+        template = models.WorkflowTemplate(**sample_template)
+        db.add(template)
+        
+        db.commit()
+        db.close()
+        
+        results.extend([
+            "Created 3 subscription tiers",
+            "Created 2 system integrations", 
+            "Created 1 sample workflow template"
+        ])
+        
+        return {
+            "status": "success",
+            "message": "System initialized successfully",
+            "actions_performed": results,
+            "admin_credentials": {
+                "username": "admin",
+                "email": "admin@ryvr.com", 
+                "password": "password"
+            },
+            "next_steps": [
+                "Login with admin credentials",
+                "Configure DataForSEO and OpenAI API keys in integrations",
+                "Use /database/initialize for additional templates"
+            ],
+            "timestamp": datetime.utcnow()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if 'db' in locals():
+            db.rollback()
+            db.close()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"System initialization failed: {str(e)}"
         )
 
 @router.post("/database/migrate")
