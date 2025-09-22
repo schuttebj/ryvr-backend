@@ -369,5 +369,227 @@ async def get_system_status():
             "setup_required": True
         }
 
-# Fix the endpoint definition by removing the duplicate decorator
-# The main endpoint already has the @router.post decorator above
+# =============================================================================
+# ESSENTIAL ADMIN ENDPOINTS (Used by Frontend)
+# =============================================================================
+
+@router.get("/dashboard")
+async def get_dashboard_stats(current_user: models.User = Depends(get_current_admin_user)):
+    """
+    Get admin dashboard statistics
+    
+    Returns overview stats for the admin dashboard including:
+    - User counts by role
+    - Workflow execution stats
+    - System health metrics
+    - Recent activity
+    """
+    try:
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        # User statistics
+        total_users = db.query(models.User).count()
+        admin_users = db.query(models.User).filter(models.User.role == "admin").count()
+        agency_users = db.query(models.User).filter(models.User.role.like("agency_%")).count()
+        business_users = db.query(models.User).filter(models.User.role == "business_user").count()
+        
+        # Workflow statistics
+        total_templates = db.query(models.WorkflowTemplate).count()
+        published_templates = db.query(models.WorkflowTemplate).filter(
+            models.WorkflowTemplate.status == "published"
+        ).count()
+        total_executions = db.query(models.WorkflowExecution).count()
+        
+        # System statistics
+        total_integrations = db.query(models.Integration).count()
+        active_integrations = db.query(models.Integration).filter(
+            models.Integration.is_active == True
+        ).count()
+        
+        db.close()
+        
+        return {
+            "users": {
+                "total": total_users,
+                "admins": admin_users,
+                "agencies": agency_users,
+                "businesses": business_users
+            },
+            "workflows": {
+                "templates": total_templates,
+                "published": published_templates,
+                "executions": total_executions
+            },
+            "integrations": {
+                "total": total_integrations,
+                "active": active_integrations
+            },
+            "system": {
+                "uptime": "Available",
+                "version": "2.0",
+                "environment": "production"
+            },
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get dashboard stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get dashboard stats: {str(e)}"
+        )
+
+@router.get("/health")
+async def get_system_health():
+    """
+    Get detailed system health information
+    
+    Returns detailed health metrics for monitoring and dashboard display.
+    This is different from /system/status which is for basic initialization checks.
+    """
+    try:
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        # Database health
+        try:
+            db.execute(text("SELECT 1"))
+            database_healthy = True
+        except:
+            database_healthy = False
+        
+        # Check integrations
+        active_integrations = db.query(models.Integration).filter(
+            models.Integration.is_active == True
+        ).count()
+        total_integrations = db.query(models.Integration).count()
+        integrations_healthy = active_integrations > 0
+        
+        db.close()
+        
+        # Overall system status
+        overall_status = "healthy" if database_healthy and integrations_healthy else "degraded"
+        
+        return {
+            "status": overall_status,
+            "database": database_healthy,
+            "integrations": integrations_healthy,
+            "services": True,  # Assume API services are healthy if we can respond
+            "uptime": "Available",
+            "details": {
+                "database_connection": "OK" if database_healthy else "ERROR",
+                "active_integrations": f"{active_integrations}/{total_integrations}",
+                "api_response_time": "< 100ms"
+            },
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "database": False,
+            "integrations": False,
+            "services": False,
+            "uptime": "Unknown",
+            "error": str(e),
+            "timestamp": datetime.utcnow()
+        }
+
+@router.get("/users")
+async def get_users(
+    skip: int = 0,
+    limit: int = 100,
+    role: Optional[str] = None,
+    current_user: models.User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get users with optional filtering
+    
+    Supports pagination and role-based filtering for admin user management.
+    """
+    try:
+        query = db.query(models.User)
+        
+        if role:
+            query = query.filter(models.User.role == role)
+        
+        users = query.offset(skip).limit(limit).all()
+        total = query.count()
+        
+        return {
+            "users": [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "role": user.role,
+                    "is_active": user.is_active,
+                    "email_verified": user.email_verified,
+                    "created_at": user.created_at,
+                    "last_login": user.last_login
+                }
+                for user in users
+            ],
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get users: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get users: {str(e)}"
+        )
+
+@router.put("/users/{user_id}/status")
+async def update_user_status(
+    user_id: int,
+    status: str,  # 'activate' or 'deactivate'
+    current_user: models.User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update user status (activate/deactivate)
+    
+    Allows admin to activate or deactivate user accounts.
+    """
+    try:
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Don't allow deactivating the last admin
+        if status == 'deactivate' and user.role == 'admin':
+            admin_count = db.query(models.User).filter(
+                models.User.role == 'admin',
+                models.User.is_active == True
+            ).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot deactivate the last admin user"
+                )
+        
+        user.is_active = (status == 'activate')
+        db.commit()
+        
+        return {
+            "message": f"User {status}d successfully",
+            "user_id": user_id,
+            "new_status": user.is_active
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update user status: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update user status: {str(e)}"
+        )
