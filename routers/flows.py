@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc, asc
 from datetime import datetime, timezone
 
-from ..database import get_db
-from ..auth import get_current_active_user
-from .. import models
-from ..services.credit_service import CreditService
+from database import get_db
+from auth import get_current_active_user
+import models
+from services.credit_service import CreditService
 import logging
 
 logger = logging.getLogger(__name__)
