@@ -352,6 +352,95 @@ async def execute_workflow(
         raise HTTPException(status_code=500, detail="Execution failed")
 
 
+@router.put("/templates/{template_id}")
+async def update_workflow_template(
+    template_id: int,
+    template_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Update an existing workflow template"""
+    try:
+        # Get existing template
+        template = db.query(models.WorkflowTemplate).filter(
+            models.WorkflowTemplate.id == template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        
+        # Check permissions - only allow update if user created it or is admin
+        if template.created_by != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # Update template fields
+        if "name" in template_data:
+            template.name = template_data["name"]
+        if "description" in template_data:
+            template.description = template_data["description"]
+        if "category" in template_data:
+            template.category = template_data["category"]
+        if "tags" in template_data:
+            template.tags = template_data["tags"]
+        if "credit_cost" in template_data:
+            template.credit_cost = template_data["credit_cost"]
+        if "estimated_duration" in template_data:
+            template.estimated_duration = template_data["estimated_duration"]
+        if "status" in template_data:
+            template.status = template_data["status"]
+        
+        # Update workflow configuration
+        if "workflow_config" in template_data:
+            template.workflow_config = template_data["workflow_config"]
+        elif "steps" in template_data:
+            # Handle legacy format - convert to workflow_config
+            template.workflow_config = {
+                "schema_version": template_data.get("schema_version", "ryvr.workflow.v1"),
+                "inputs": template_data.get("inputs", {}),
+                "globals": template_data.get("globals", {}),
+                "steps": template_data["steps"]
+            }
+        
+        # Update execution configuration
+        if "execution_config" in template_data:
+            template.execution_config = template_data["execution_config"]
+        elif "execution" in template_data:
+            template.execution_config = template_data["execution"]
+        
+        # Update tool catalog if provided
+        if "tool_catalog" in template_data:
+            template.tool_catalog = template_data["tool_catalog"]
+        
+        db.commit()
+        db.refresh(template)
+        
+        logger.info(f"Updated workflow template {template_id} by user {current_user.id}")
+        
+        # Return updated template in the expected format
+        return {
+            "id": template.id,
+            "schema_version": template.schema_version,
+            "name": template.name,
+            "description": template.description,
+            "category": template.category,
+            "tags": template.tags,
+            "workflow_config": template.workflow_config,
+            "execution_config": template.execution_config,
+            "tool_catalog": template.tool_catalog,
+            "credit_cost": template.credit_cost,
+            "estimated_duration": template.estimated_duration,
+            "status": template.status,
+            "created_at": template.created_at,
+            "updated_at": template.updated_at,
+            "created_by": template.created_by
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update workflow template: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update template")
+
 @router.delete("/templates/{template_id}")
 async def delete_workflow_template(
     template_id: int,
