@@ -13,6 +13,7 @@ import logging
 
 from database import get_db, engine, Base
 import models
+import models_simple
 import schemas
 from auth import get_current_admin_user, get_password_hash
 
@@ -281,6 +282,65 @@ async def reset_and_initialize_system(
             template = models.WorkflowTemplate(**template_data)
             db.add(template)
         results.append("Created 3 V2 workflow templates")
+        
+        # Initialize Simple Workflow System
+        logger.info("Creating simple workflow system data...")
+        
+        # Create simple integrations
+        simple_integrations = [
+            {
+                "id": "openai_simple",
+                "name": "OpenAI (Simple)",
+                "type": "openai",
+                "status": "disconnected",
+                "config": {"api_key": "", "model": "gpt-3.5-turbo"}
+            },
+            {
+                "id": "dataforseo_simple", 
+                "name": "DataForSEO (Simple)",
+                "type": "dataforseo",
+                "status": "disconnected",
+                "config": {"username": "", "password": "", "sandbox": True}
+            }
+        ]
+        
+        for integration_data in simple_integrations:
+            integration = models_simple.Integration(**integration_data)
+            db.add(integration)
+        results.append("Created simple integrations")
+        
+        # Create sample simple workflow
+        sample_workflow = models_simple.SimpleWorkflow(
+            id="sample_workflow_1",
+            name="Sample SEO Workflow",
+            description="A basic workflow for SEO analysis",
+            nodes=[
+                {
+                    "id": "trigger_1",
+                    "type": "trigger",
+                    "position": {"x": 100, "y": 100},
+                    "data": {"label": "Start", "nodeType": "trigger"}
+                },
+                {
+                    "id": "serp_1", 
+                    "type": "serp",
+                    "position": {"x": 300, "y": 100},
+                    "data": {"label": "SERP Analysis", "nodeType": "serp", "keyword": "example keyword"}
+                }
+            ],
+            edges=[
+                {
+                    "id": "edge_trigger_serp",
+                    "source": "trigger_1",
+                    "target": "serp_1",
+                    "type": "smoothstep"
+                }
+            ],
+            is_active=False,
+            tags=["seo", "sample"]
+        )
+        db.add(sample_workflow)
+        results.append("Created sample simple workflow")
         
         db.commit()
         db.close()

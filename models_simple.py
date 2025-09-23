@@ -34,7 +34,7 @@ class SimpleWorkflow(Base):
 
 class WorkflowExecution(Base):
     """Track workflow executions"""
-    __tablename__ = "workflow_executions"
+    __tablename__ = "simple_workflow_executions"
     
     id = Column(String, primary_key=True)
     workflow_id = Column(String, nullable=False)  # References simple_workflows.id

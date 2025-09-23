@@ -6,6 +6,7 @@ from datetime import datetime
 
 from database import get_db
 import models
+from models_simple import Integration, SimpleWorkflow, WorkflowExecution
 
 router = APIRouter(prefix="/api/simple", tags=["simple"])
 
