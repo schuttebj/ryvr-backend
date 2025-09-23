@@ -4,7 +4,7 @@ from database import Base
 
 class Integration(Base):
     """System-wide integrations (not per client)"""
-    __tablename__ = "integrations"
+    __tablename__ = "simple_integrations"
     
     id = Column(String, primary_key=True)  # UUID or custom ID
     name = Column(String, nullable=False)
