@@ -6,7 +6,7 @@ from datetime import datetime
 
 from database import get_db
 import models
-from models_simple import Integration, SimpleWorkflow, SimpleWorkflowExecution
+from models_simple import SimpleIntegration, SimpleWorkflow, SimpleWorkflowExecution
 
 router = APIRouter(prefix="/api/simple", tags=["simple"])
 
@@ -15,16 +15,15 @@ router = APIRouter(prefix="/api/simple", tags=["simple"])
 @router.get("/integrations", response_model=List[Dict[str, Any]])
 def get_integrations(db: Session = Depends(get_db)):
     """Get all system-wide integrations"""
-    integrations = db.query(models.Integration).all()
+    integrations = db.query(SimpleIntegration).all()
     return [
         {
             "id": integration.id,
             "name": integration.name,
-            "provider": integration.provider,
-            "integration_type": integration.integration_type,
-            "level": integration.level,
-            "is_active": integration.is_active,
-            "config_schema": integration.config_schema,
+            "type": integration.type,
+            "status": integration.status,
+            "config": integration.config,
+            "last_tested": integration.last_tested,
             "created_at": integration.created_at,
             "updated_at": integration.updated_at,
         }
@@ -34,13 +33,12 @@ def get_integrations(db: Session = Depends(get_db)):
 @router.post("/integrations")
 def create_integration(integration_data: Dict[str, Any], db: Session = Depends(get_db)):
     """Create a new system-wide integration"""
-    integration = models.Integration(
+    integration = SimpleIntegration(
+        id=integration_data.get("id", f"integration_{integration_data['name'].lower().replace(' ', '_')}"),
         name=integration_data["name"],
-        provider=integration_data["provider"],
-        integration_type=integration_data.get("integration_type", "system"),
-        level=integration_data.get("level", "system"),
-        is_active=integration_data.get("is_active", True),
-        config_schema=integration_data.get("config_schema", {}),
+        type=integration_data.get("type", "custom"),
+        status=integration_data.get("status", "disconnected"),
+        config=integration_data.get("config", {}),
     )
     
     db.add(integration)
@@ -52,7 +50,7 @@ def create_integration(integration_data: Dict[str, Any], db: Session = Depends(g
 @router.put("/integrations/{integration_id}")
 def update_integration(integration_id: str, integration_data: Dict[str, Any], db: Session = Depends(get_db)):
     """Update an existing integration"""
-    integration = db.query(Integration).filter(Integration.id == integration_id).first()
+    integration = db.query(SimpleIntegration).filter(SimpleIntegration.id == integration_id).first()
     if not integration:
         raise HTTPException(status_code=404, detail="Integration not found")
     
@@ -69,7 +67,7 @@ def update_integration(integration_id: str, integration_data: Dict[str, Any], db
 @router.delete("/integrations/{integration_id}")
 def delete_integration(integration_id: str, db: Session = Depends(get_db)):
     """Delete an integration"""
-    integration = db.query(Integration).filter(Integration.id == integration_id).first()
+    integration = db.query(SimpleIntegration).filter(SimpleIntegration.id == integration_id).first()
     if not integration:
         raise HTTPException(status_code=404, detail="Integration not found")
     

@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON
 from sqlalchemy.sql import func
 from database import Base
 
-class Integration(Base):
+class SimpleIntegration(Base):
     """System-wide integrations (not per client)"""
     __tablename__ = "simple_integrations"
     

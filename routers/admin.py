@@ -305,7 +305,7 @@ async def reset_and_initialize_system(
         ]
         
         for integration_data in simple_integrations:
-            integration = models_simple.Integration(**integration_data)
+            integration = models_simple.SimpleIntegration(**integration_data)
             db.add(integration)
         results.append("Created simple integrations")
         
