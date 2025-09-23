@@ -32,7 +32,7 @@ class SimpleWorkflow(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-class WorkflowExecution(Base):
+class SimpleWorkflowExecution(Base):
     """Track workflow executions"""
     __tablename__ = "simple_workflow_executions"
     

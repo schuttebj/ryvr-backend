@@ -6,7 +6,7 @@ from datetime import datetime
 
 from database import get_db
 import models
-from models_simple import Integration, SimpleWorkflow, WorkflowExecution
+from models_simple import Integration, SimpleWorkflow, SimpleWorkflowExecution
 
 router = APIRouter(prefix="/api/simple", tags=["simple"])
 
@@ -182,7 +182,7 @@ def execute_workflow(workflow_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Workflow not found")
     
     # Create execution record
-    execution = WorkflowExecution(
+    execution = SimpleWorkflowExecution(
         id=f"exec_{workflow_id}_{int(datetime.now().timestamp())}",
         workflow_id=workflow_id,
         status="running"
