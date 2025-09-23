@@ -392,6 +392,92 @@ def create_default_integrations():
                     'ad_account_id': {'type': 'string', 'required': True}
                 },
                 'is_active': True
+            },
+            {
+                'name': 'WordPress',
+                'provider': 'wordpress',
+                'integration_type': 'business',
+                'level': 'business',
+                'config_schema': {
+                    'site_url': {'type': 'string', 'required': True, 'description': 'WordPress site URL'},
+                    'api_key': {'type': 'string', 'required': True, 'description': 'RYVR Integration plugin API key'},
+                    'sync_post_types': {'type': 'array', 'default': ['post', 'page'], 'description': 'Post types to sync'},
+                    'sync_acf_fields': {'type': 'boolean', 'default': True, 'description': 'Enable ACF field sync'},
+                    'sync_rankmath_data': {'type': 'boolean', 'default': True, 'description': 'Enable RankMath SEO sync'},
+                    'sync_taxonomies': {'type': 'boolean', 'default': True, 'description': 'Enable taxonomy sync'},
+                    'default_author_id': {'type': 'integer', 'description': 'Default WordPress author ID'},
+                    'two_way_sync': {'type': 'boolean', 'default': True, 'description': 'Enable bidirectional sync'}
+                },
+                'provider_id': 'wordpress',
+                'operation_configs': {
+                    'extract_posts': {
+                        'name': 'Extract Posts',
+                        'description': 'Extract posts and pages from WordPress',
+                        'input_schema': {
+                            'post_type': {'type': 'string', 'default': 'post'},
+                            'status': {'type': 'string', 'default': 'any'},
+                            'limit': {'type': 'integer', 'default': 50, 'maximum': 100},
+                            'modified_after': {'type': 'string', 'description': 'ISO date filter'}
+                        },
+                        'output_schema': {
+                            'posts': {'type': 'array', 'items': {'type': 'object'}},
+                            'total': {'type': 'integer'}
+                        }
+                    },
+                    'publish_content': {
+                        'name': 'Publish Content',
+                        'description': 'Publish content to WordPress',
+                        'input_schema': {
+                            'title': {'type': 'string', 'required': True},
+                            'content': {'type': 'string'},
+                            'status': {'type': 'string', 'default': 'draft'},
+                            'post_type': {'type': 'string', 'default': 'post'},
+                            'acf_fields': {'type': 'object'},
+                            'rankmath_seo': {'type': 'object'},
+                            'taxonomies': {'type': 'object'}
+                        },
+                        'output_schema': {
+                            'post_id': {'type': 'integer'},
+                            'action': {'type': 'string'},
+                            'success': {'type': 'boolean'}
+                        }
+                    },
+                    'sync_content': {
+                        'name': 'Sync Content',
+                        'description': 'Bidirectional content synchronization',
+                        'input_schema': {
+                            'direction': {'type': 'string', 'enum': ['to_wordpress', 'from_wordpress', 'both'], 'default': 'both'},
+                            'post_ids': {'type': 'array', 'items': {'type': 'integer'}}
+                        },
+                        'output_schema': {
+                            'successful': {'type': 'integer'},
+                            'failed': {'type': 'integer'},
+                            'results': {'type': 'array'}
+                        }
+                    },
+                    'get_site_info': {
+                        'name': 'Get Site Information',
+                        'description': 'Get WordPress site details and capabilities',
+                        'input_schema': {},
+                        'output_schema': {
+                            'name': {'type': 'string'},
+                            'url': {'type': 'string'},
+                            'version': {'type': 'string'},
+                            'post_types': {'type': 'array'},
+                            'capabilities': {'type': 'object'}
+                        }
+                    }
+                },
+                'credit_multiplier': 0.1,  # WordPress operations are less expensive
+                'tier_restrictions': [],  # Available to all tiers
+                'is_async_capable': True,
+                'async_config': {
+                    'webhook_url_pattern': '/api/v1/integrations/business/{business_id}/wordpress/webhook',
+                    'supported_events': ['content_changed', 'post_published', 'post_updated', 'post_deleted']
+                },
+                'max_concurrent_requests': 10,
+                'default_timeout_seconds': 120,
+                'is_active': True
             }
         ]
         
@@ -778,6 +864,256 @@ def create_sample_workflow_templates():
                 'version': '2.0',
                 'icon': 'trending_up',
                 'created_by': admin_user.id
+            },
+            # WordPress Integration Templates
+            {
+                'name': 'WordPress Content Sync',
+                'description': 'Synchronize content between WordPress and RYVR',
+                'category': 'content',
+                'tags': ['wordpress', 'sync', 'content'],
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "sync_direction": {
+                            "type": "select",
+                            "options": ["from_wordpress", "to_wordpress", "both"],
+                            "default": "from_wordpress",
+                            "required": True,
+                            "description": "Direction of content synchronization"
+                        },
+                        "post_type": {
+                            "type": "select",
+                            "options": ["post", "page", "any"],
+                            "default": "post",
+                            "description": "Type of content to sync"
+                        },
+                        "include_acf": {
+                            "type": "checkbox",
+                            "default": True,
+                            "description": "Include ACF custom fields"
+                        },
+                        "include_seo": {
+                            "type": "checkbox",
+                            "default": True,
+                            "description": "Include RankMath SEO data"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "wordpress_sync",
+                            "type": "api_call",
+                            "name": "WordPress Content Sync",
+                            "connection_id": "wordpress",
+                            "operation": "sync_content",
+                            "input": {
+                                "bindings": {
+                                    "direction": "expr: $.inputs.sync_direction",
+                                    "sync_acf": "expr: $.inputs.include_acf",
+                                    "sync_seo": "expr: $.inputs.include_seo",
+                                    "sync_taxonomies": True
+                                }
+                            }
+                        }
+                    ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 1,
+                    "timeout_seconds": 300,
+                    "dry_run": False
+                },
+                'credit_cost': 5,
+                'estimated_duration': 10,
+                'tier_access': ['starter', 'professional', 'enterprise'],
+                'status': 'published',
+                'version': '2.0',
+                'icon': 'sync',
+                'created_by': admin_user.id
+            },
+            {
+                'name': 'WordPress Content Extract',
+                'description': 'Extract posts and pages from WordPress with full metadata',
+                'category': 'content',
+                'tags': ['wordpress', 'extract', 'content', 'seo'],
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "post_type": {
+                            "type": "select",
+                            "options": ["post", "page", "any"],
+                            "default": "post",
+                            "required": True,
+                            "description": "Type of content to extract"
+                        },
+                        "post_status": {
+                            "type": "select",
+                            "options": ["publish", "draft", "private", "any"],
+                            "default": "publish",
+                            "description": "Post status filter"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "default": 25,
+                            "min": 1,
+                            "max": 100,
+                            "description": "Number of posts to extract"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "extract_posts",
+                            "type": "api_call",
+                            "name": "Extract WordPress Posts",
+                            "connection_id": "wordpress",
+                            "operation": "extract_posts",
+                            "input": {
+                                "bindings": {
+                                    "post_type": "expr: $.inputs.post_type",
+                                    "status": "expr: $.inputs.post_status",
+                                    "limit": "expr: $.inputs.limit",
+                                    "include_acf": True,
+                                    "include_seo": True,
+                                    "include_taxonomies": True
+                                }
+                            }
+                        },
+                        {
+                            "id": "format_data",
+                            "type": "transform",
+                            "name": "Format Post Data",
+                            "depends_on": ["extract_posts"],
+                            "transform": {
+                                "extract": {
+                                    "posts_list": "expr: $.steps.extract_posts.data.posts",
+                                    "total_extracted": "expr: $.steps.extract_posts.data.total",
+                                    "post_titles": "expr: $.steps.extract_posts.data.posts[].title",
+                                    "seo_titles": "expr: $.steps.extract_posts.data.posts[].rankmath_seo.seo_title"
+                                }
+                            }
+                        }
+                    ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 1,
+                    "timeout_seconds": 120,
+                    "dry_run": False
+                },
+                'credit_cost': 3,
+                'estimated_duration': 5,
+                'tier_access': ['starter', 'professional', 'enterprise'],
+                'status': 'published',
+                'version': '2.0',
+                'icon': 'download',
+                'created_by': admin_user.id
+            },
+            {
+                'name': 'AI Content to WordPress',
+                'description': 'Generate AI content and publish directly to WordPress with SEO optimization',
+                'category': 'content',
+                'tags': ['wordpress', 'ai', 'content', 'seo', 'publishing'],
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "topic": {
+                            "type": "string",
+                            "required": True,
+                            "description": "Content topic or keyword"
+                        },
+                        "content_type": {
+                            "type": "select",
+                            "options": ["blog_post", "landing_page", "product_description"],
+                            "default": "blog_post",
+                            "description": "Type of content to create"
+                        },
+                        "target_keyword": {
+                            "type": "string",
+                            "description": "Primary SEO keyword"
+                        },
+                        "word_count": {
+                            "type": "integer",
+                            "default": 800,
+                            "min": 300,
+                            "max": 2000,
+                            "description": "Target word count"
+                        },
+                        "post_status": {
+                            "type": "select",
+                            "options": ["draft", "publish"],
+                            "default": "draft",
+                            "description": "WordPress post status"
+                        }
+                    },
+                    "globals": {},
+                    "steps": [
+                        {
+                            "id": "generate_content",
+                            "type": "api_call",
+                            "name": "Generate AI Content",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Write a comprehensive ' + $.inputs.content_type + ' about \"' + $.inputs.topic + '\". Target keyword: \"' + $.inputs.target_keyword + '\". Word count: approximately ' + to_string($.inputs.word_count) + ' words. Include an engaging introduction, well-structured body with headers, and a compelling conclusion. Write in HTML format with proper heading tags (h2, h3) and paragraph tags.'",
+                                    "max_tokens": "expr: $.inputs.word_count * 2",
+                                    "temperature": 0.7
+                                }
+                            }
+                        },
+                        {
+                            "id": "generate_seo_meta",
+                            "type": "api_call",
+                            "name": "Generate SEO Metadata",
+                            "connection_id": "openai",
+                            "operation": "chat_completion",
+                            "depends_on": ["generate_content"],
+                            "input": {
+                                "bindings": {
+                                    "prompt": "expr: 'Based on this content about \"' + $.inputs.topic + '\", create SEO metadata. Return ONLY a JSON object with: {\"title\": \"SEO-optimized title (max 60 chars)\", \"meta_description\": \"compelling meta description (max 160 chars)\", \"excerpt\": \"brief excerpt (max 155 chars)\"}. Content: ' + $.steps.generate_content.data.choices[0].message.content[:500]",
+                                    "max_tokens": 200,
+                                    "temperature": 0.3
+                                }
+                            }
+                        },
+                        {
+                            "id": "publish_to_wordpress",
+                            "type": "api_call",
+                            "name": "Publish to WordPress",
+                            "connection_id": "wordpress",
+                            "operation": "publish_content",
+                            "depends_on": ["generate_content", "generate_seo_meta"],
+                            "input": {
+                                "bindings": {
+                                    "title": "expr: $.steps.generate_seo_meta.data.choices[0].message.content | fromjson(@).title || $.inputs.topic",
+                                    "content": "expr: $.steps.generate_content.data.choices[0].message.content",
+                                    "excerpt": "expr: $.steps.generate_seo_meta.data.choices[0].message.content | fromjson(@).excerpt || ''",
+                                    "status": "expr: $.inputs.post_status",
+                                    "post_type": "post",
+                                    "rankmath_seo": {
+                                        "focus_keyword": "expr: $.inputs.target_keyword",
+                                        "seo_title": "expr: $.steps.generate_seo_meta.data.choices[0].message.content | fromjson(@).title || $.inputs.topic",
+                                        "meta_description": "expr: $.steps.generate_seo_meta.data.choices[0].message.content | fromjson(@).meta_description || ''"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                },
+                'execution_config': {
+                    "execution_mode": "live",
+                    "max_concurrency": 1,
+                    "timeout_seconds": 180,
+                    "dry_run": False
+                },
+                'credit_cost': 15,
+                'estimated_duration': 8,
+                'tier_access': ['professional', 'enterprise'],
+                'status': 'published',
+                'version': '2.0',
+                'icon': 'edit',
+                'created_by': admin_user.id
             }
         ]
         
@@ -786,7 +1122,7 @@ def create_sample_workflow_templates():
             db.add(template)
         
         db.commit()
-        print(f"✅ Created {len(templates)} sample workflow templates")
+        print(f"✅ Created {len(templates)} workflow templates (including 3 WordPress templates)")
         db.close()
         return True
         

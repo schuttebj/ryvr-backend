@@ -26,7 +26,8 @@ class IntegrationService:
             "openai": self._handle_openai,
             "google_ads": self._handle_google_ads,
             "google_analytics": self._handle_google_analytics,
-            "meta_ads": self._handle_meta_ads
+            "meta_ads": self._handle_meta_ads,
+            "wordpress": self._handle_wordpress
         }
     
     async def get_available_integrations(self, business_id: int) -> List[Dict[str, Any]]:
@@ -410,6 +411,71 @@ class IntegrationService:
             "data": {"message": "Meta Ads integration not yet implemented"},
             "credits_used": node_config.get("credits_cost", 3)
         }
+    
+    async def _handle_wordpress(
+        self,
+        credentials: Dict[str, Any],
+        node_config: Dict[str, Any],
+        input_data: Dict[str, Any],
+        business_id: int
+    ) -> Dict[str, Any]:
+        """Handle WordPress integration"""
+        try:
+            from services.wordpress_service import WordPressService
+            
+            service = WordPressService(
+                site_url=credentials.get("site_url"),
+                api_key=credentials.get("api_key"),
+                db=self.db
+            )
+            
+            operation = node_config.get("operation", "get_site_info")
+            
+            # Map operations to service methods
+            if operation == "extract_posts":
+                result = await service.extract_posts(
+                    post_type=input_data.get("post_type", "post"),
+                    status=input_data.get("status", "any"),
+                    limit=input_data.get("limit", 50),
+                    modified_after=input_data.get("modified_after"),
+                    include_acf=input_data.get("include_acf", True),
+                    include_seo=input_data.get("include_seo", True),
+                    include_taxonomies=input_data.get("include_taxonomies", True)
+                )
+            elif operation == "publish_content":
+                result = await service.publish_content(input_data)
+            elif operation == "sync_content":
+                result = await service.sync_content(
+                    direction=input_data.get("direction", "both"),
+                    post_ids=input_data.get("post_ids"),
+                    sync_acf=input_data.get("sync_acf", True),
+                    sync_seo=input_data.get("sync_seo", True),
+                    sync_taxonomies=input_data.get("sync_taxonomies", True),
+                    conflict_resolution=input_data.get("conflict_resolution", "skip")
+                )
+            elif operation == "get_site_info":
+                result = await service.get_site_info()
+            else:
+                raise ValueError(f"Unknown WordPress operation: {operation}")
+            
+            return {
+                "success": True,
+                "provider": "wordpress",
+                "operation": operation,
+                "level": credentials.get("level"),
+                "data": result,
+                "credits_used": node_config.get("credits_cost", 2)
+            }
+            
+        except Exception as e:
+            logger.error(f"WordPress integration error: {e}")
+            return {
+                "success": False,
+                "provider": "wordpress",
+                "level": credentials.get("level"),
+                "error": str(e),
+                "credits_used": 0
+            }
     
     # =============================================================================
     # TESTING METHODS

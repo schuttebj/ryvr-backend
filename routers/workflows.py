@@ -615,6 +615,69 @@ async def get_tool_catalog(
                             ]
                         }
                     }
+                },
+                "wordpress": {
+                    "name": "WordPress",
+                    "description": "WordPress content management and synchronization",
+                    "category": "content",
+                    "auth_type": "api_key",
+                    "operations": {
+                        "extract_posts": {
+                            "name": "Extract Posts",
+                            "description": "Extract posts and pages from WordPress",
+                            "is_async": True,
+                            "base_credits": 2,
+                            "fields": [
+                                {"name": "post_type", "type": "select", "options": ["post", "page", "any"], "default": "post", "description": "Type of content to extract"},
+                                {"name": "status", "type": "select", "options": ["publish", "draft", "private", "any"], "default": "any", "description": "Post status filter"},
+                                {"name": "limit", "type": "integer", "default": 50, "min": 1, "max": 100, "description": "Number of posts to extract"},
+                                {"name": "modified_after", "type": "datetime", "description": "Only extract posts modified after this date"},
+                                {"name": "include_acf", "type": "checkbox", "default": True, "description": "Include ACF custom fields"},
+                                {"name": "include_seo", "type": "checkbox", "default": True, "description": "Include RankMath SEO data"},
+                                {"name": "include_taxonomies", "type": "checkbox", "default": True, "description": "Include categories and tags"}
+                            ]
+                        },
+                        "publish_content": {
+                            "name": "Publish Content",
+                            "description": "Publish content to WordPress",
+                            "is_async": True,
+                            "base_credits": 3,
+                            "fields": [
+                                {"name": "title", "type": "string", "required": True, "description": "Post title"},
+                                {"name": "content", "type": "textarea", "required": True, "description": "Post content (HTML allowed)"},
+                                {"name": "excerpt", "type": "textarea", "description": "Post excerpt"},
+                                {"name": "status", "type": "select", "options": ["draft", "publish", "private"], "default": "draft", "description": "Post status"},
+                                {"name": "post_type", "type": "select", "options": ["post", "page"], "default": "post", "description": "Content type"},
+                                {"name": "categories", "type": "multiselect", "description": "Post categories"},
+                                {"name": "tags", "type": "multiselect", "description": "Post tags"},
+                                {"name": "acf_fields", "type": "json", "description": "ACF custom fields (JSON object)"},
+                                {"name": "seo_title", "type": "string", "description": "SEO title"},
+                                {"name": "meta_description", "type": "textarea", "description": "Meta description"},
+                                {"name": "focus_keyword", "type": "string", "description": "Primary SEO keyword"}
+                            ]
+                        },
+                        "sync_content": {
+                            "name": "Sync Content",
+                            "description": "Bidirectional content synchronization",
+                            "is_async": True,
+                            "base_credits": 5,
+                            "fields": [
+                                {"name": "direction", "type": "select", "options": ["to_wordpress", "from_wordpress", "both"], "default": "both", "description": "Sync direction"},
+                                {"name": "post_ids", "type": "multiselect", "description": "Specific post IDs to sync (leave empty for all)"},
+                                {"name": "sync_acf", "type": "checkbox", "default": True, "description": "Sync ACF fields"},
+                                {"name": "sync_seo", "type": "checkbox", "default": True, "description": "Sync SEO data"},
+                                {"name": "sync_taxonomies", "type": "checkbox", "default": True, "description": "Sync categories and tags"},
+                                {"name": "conflict_resolution", "type": "select", "options": ["skip", "overwrite_wp", "overwrite_ryvr"], "default": "skip", "description": "How to handle conflicts"}
+                            ]
+                        },
+                        "get_site_info": {
+                            "name": "Get Site Info",
+                            "description": "Get WordPress site information and capabilities",
+                            "is_async": False,
+                            "base_credits": 1,
+                            "fields": []
+                        }
+                    }
                 }
             }
         }

@@ -508,6 +508,289 @@ async def get_available_integrations(
     }
 
 # =============================================================================
+# WORDPRESS-SPECIFIC ENDPOINTS
+# =============================================================================
+
+@router.post("/business/{business_id}/wordpress/register")
+async def register_wordpress_site(
+    business_id: int,
+    site_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Register a WordPress site with RYVR business integration"""
+    if not verify_business_access(db, current_user, business_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this business denied"
+        )
+    
+    try:
+        # Get WordPress integration definition
+        wordpress_integration = db.query(models.Integration).filter(
+            models.Integration.provider == "wordpress",
+            models.Integration.is_active == True
+        ).first()
+        
+        if not wordpress_integration:
+            raise HTTPException(
+                status_code=404,
+                detail="WordPress integration not found"
+            )
+        
+        # Check if WordPress integration already exists for this business
+        existing = db.query(models.BusinessIntegration).filter(
+            models.BusinessIntegration.business_id == business_id,
+            models.BusinessIntegration.integration_id == wordpress_integration.id
+        ).first()
+        
+        # Prepare configuration
+        custom_config = {
+            'site_url': site_data.get('url'),
+            'site_name': site_data.get('name'),
+            'wordpress_version': site_data.get('wordpress_version'),
+            'plugin_version': site_data.get('plugin_version'),
+            'supported_post_types': site_data.get('supported_post_types', []),
+            'acf_active': site_data.get('acf_active', False),
+            'rankmath_active': site_data.get('rankmath_active', False),
+            'sync_capabilities': site_data.get('sync_capabilities', {}),
+            'sync_post_types': site_data.get('sync_post_types', ['post', 'page']),
+            'sync_acf_fields': site_data.get('sync_acf_fields', True),
+            'sync_rankmath_data': site_data.get('sync_rankmath_data', True),
+            'sync_taxonomies': site_data.get('sync_taxonomies', True),
+            'two_way_sync': site_data.get('two_way_sync', True),
+            'registered_at': datetime.utcnow().isoformat()
+        }
+        
+        # Generate API key for WordPress plugin
+        import secrets
+        api_key = f"ryvr_wp_{secrets.token_urlsafe(32)}"
+        
+        credentials = {
+            'api_key': api_key,
+            'site_url': site_data.get('url'),
+            'admin_url': site_data.get('admin_url')
+        }
+        
+        if existing:
+            # Update existing integration
+            existing.custom_config = custom_config
+            existing.credentials = credentials
+            existing.is_active = True
+            existing.last_tested = datetime.utcnow()
+            db.commit()
+            db.refresh(existing)
+            business_integration = existing
+        else:
+            # Create new business integration
+            business_integration = models.BusinessIntegration(
+                business_id=business_id,
+                integration_id=wordpress_integration.id,
+                custom_config=custom_config,
+                credentials=credentials,
+                is_active=True
+            )
+            db.add(business_integration)
+            db.commit()
+            db.refresh(business_integration)
+        
+        return {
+            "success": True,
+            "message": "WordPress site registered successfully",
+            "integration_id": business_integration.id,
+            "api_key": api_key,
+            "business_id": business_id,
+            "site_url": site_data.get('url'),
+            "registered": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to register WordPress site: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to register WordPress site: {str(e)}"
+        )
+
+@router.get("/business/{business_id}/wordpress/content")
+async def get_wordpress_content(
+    business_id: int,
+    content_id: Optional[str] = None,
+    post_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get content from RYVR to be published to WordPress"""
+    if not verify_business_access(db, current_user, business_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this business denied"
+        )
+    
+    try:
+        # This would typically get content from RYVR's content management system
+        # For now, return a placeholder structure
+        content_items = []
+        
+        # TODO: Implement actual content retrieval from RYVR's content system
+        # This might involve querying generated content, AI outputs, etc.
+        
+        return {
+            "success": True,
+            "data": content_items,
+            "total": len(content_items),
+            "business_id": business_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get WordPress content: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get content: {str(e)}"
+        )
+
+@router.post("/business/{business_id}/wordpress/content")
+async def receive_wordpress_content(
+    business_id: int,
+    content_data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Receive content from WordPress plugin"""
+    if not verify_business_access(db, current_user, business_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this business denied"
+        )
+    
+    try:
+        operation = content_data.get('operation', 'create')
+        content = content_data.get('content', {})
+        
+        # Log the content operation
+        logger.info(f"WordPress content {operation} for business {business_id}: {content.get('title', 'Untitled')}")
+        
+        # TODO: Process and store the WordPress content in RYVR's content system
+        # This might involve:
+        # - Storing in a content table
+        # - Triggering workflows
+        # - Processing ACF and SEO data
+        # - Creating content relationships
+        
+        # For now, acknowledge receipt
+        return {
+            "success": True,
+            "message": f"Content {operation} processed successfully",
+            "ryvr_post_id": f"ryvr_{business_id}_{content.get('wordpress_post_id', 'unknown')}",
+            "operation": operation,
+            "business_id": business_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to process WordPress content: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process content: {str(e)}"
+        )
+
+@router.post("/business/{business_id}/wordpress/webhook")
+async def wordpress_webhook(
+    business_id: int,
+    webhook_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Handle webhooks from WordPress plugin (no auth required for webhooks)"""
+    try:
+        event = webhook_data.get('event')
+        post_id = webhook_data.get('post_id')
+        change_type = webhook_data.get('change_type')
+        
+        logger.info(f"WordPress webhook: {event} for business {business_id}, post {post_id}, change: {change_type}")
+        
+        # TODO: Process webhook events
+        # This might involve:
+        # - Triggering automatic syncs
+        # - Notifying users
+        # - Updating content status
+        # - Logging changes
+        
+        return {
+            "success": True,
+            "message": "Webhook processed successfully",
+            "event": event,
+            "business_id": business_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to process WordPress webhook: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process webhook: {str(e)}"
+        )
+
+@router.get("/business/{business_id}/wordpress/status")
+async def get_wordpress_integration_status(
+    business_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get WordPress integration status for a business"""
+    if not verify_business_access(db, current_user, business_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this business denied"
+        )
+    
+    try:
+        # Get WordPress integration
+        wordpress_integration = db.query(models.Integration).filter(
+            models.Integration.provider == "wordpress",
+            models.Integration.is_active == True
+        ).first()
+        
+        if not wordpress_integration:
+            return {
+                "configured": False,
+                "message": "WordPress integration not available"
+            }
+        
+        # Get business integration
+        business_integration = db.query(models.BusinessIntegration).filter(
+            models.BusinessIntegration.business_id == business_id,
+            models.BusinessIntegration.integration_id == wordpress_integration.id,
+            models.BusinessIntegration.is_active == True
+        ).first()
+        
+        if not business_integration:
+            return {
+                "configured": False,
+                "message": "WordPress not configured for this business"
+            }
+        
+        config = business_integration.custom_config or {}
+        
+        return {
+            "configured": True,
+            "site_url": config.get('site_url'),
+            "site_name": config.get('site_name'),
+            "wordpress_version": config.get('wordpress_version'),
+            "plugin_version": config.get('plugin_version'),
+            "acf_active": config.get('acf_active', False),
+            "rankmath_active": config.get('rankmath_active', False),
+            "last_tested": business_integration.last_tested,
+            "sync_capabilities": config.get('sync_capabilities', {}),
+            "integration_id": business_integration.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get WordPress status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get status: {str(e)}"
+        )
+
+# =============================================================================
 # PRESERVED FUNCTIONALITY - LEGACY ENDPOINTS
 # =============================================================================
 

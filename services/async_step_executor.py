@@ -394,15 +394,15 @@ class AsyncPresetConfigs:
     def wordpress_bulk_operation() -> Dict[str, Any]:
         """WordPress bulk operation async config"""
         return {
-            "submit_operation": "start_bulk_operation",
-            "check_operation": "get_operation_status",
-            "polling_interval_seconds": 3,
-            "max_wait_seconds": 180,
-            "completion_check": "expr: @.status == 'completed'",
+            "submit_operation": "sync_content",
+            "check_operation": "get_sync_logs",
+            "polling_interval_seconds": 5,
+            "max_wait_seconds": 300,
+            "completion_check": "expr: @.stats.total > 0 && (@.stats.successful + @.stats.failed) == @.stats.total",
             "result_path": "expr: @.results",
-            "task_id_path": "expr: @.operation_id",
-            "error_check": "expr: @.status == 'error'",
-            "progress_path": "expr: @.progress_percentage"
+            "task_id_path": "expr: 'wordpress_sync_' + to_string(@.stats.total)",
+            "error_check": "expr: @.stats.failed > @.stats.successful",
+            "progress_path": "expr: @.stats"
         }
     
     @staticmethod

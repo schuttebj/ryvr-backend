@@ -182,13 +182,32 @@ async def reset_and_initialize_system(
                     "required": ["api_key"]
                 },
                 "is_active": True
+            },
+            {
+                "name": "WordPress", "provider": "wordpress",
+                "integration_type": "business", "level": "business",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "site_url": {"type": "string", "description": "WordPress site URL"},
+                        "api_key": {"type": "string", "description": "RYVR Integration plugin API key"},
+                        "sync_post_types": {"type": "array", "default": ["post", "page"]},
+                        "sync_acf_fields": {"type": "boolean", "default": True},
+                        "sync_rankmath_data": {"type": "boolean", "default": True},
+                        "sync_taxonomies": {"type": "boolean", "default": True},
+                        "two_way_sync": {"type": "boolean", "default": True}
+                    },
+                    "required": ["site_url", "api_key"]
+                },
+                "provider_id": "wordpress",
+                "is_active": True
             }
         ]
         
         for int_data in integrations:
             integration = models.Integration(**int_data)
             db.add(integration)
-        results.append("Created 2 system integrations")
+        results.append("Created 3 system integrations")
         
         # Create V2 workflow templates
         logger.info("Creating V2 workflow templates...")
@@ -275,13 +294,33 @@ async def reset_and_initialize_system(
                 'execution_config': {"execution_mode": "live", "max_concurrency": 1, "timeout_seconds": 60, "dry_run": False},
                 'credit_cost': 5, 'estimated_duration': 2, 'tier_access': ['starter', 'professional', 'enterprise'],
                 'status': 'published', 'version': '2.0', 'icon': 'search', 'created_by': admin_user.id
+            },
+            {
+                'name': 'WordPress Content Sync',
+                'description': 'Synchronize content between WordPress and RYVR',
+                'category': 'content', 'tags': ['wordpress', 'sync', 'content'],
+                'schema_version': 'ryvr.workflow.v1',
+                'workflow_config': {
+                    "inputs": {
+                        "sync_direction": {"type": "select", "options": ["from_wordpress", "to_wordpress", "both"], "default": "from_wordpress", "required": True}
+                    },
+                    "globals": {},
+                    "steps": [{
+                        "id": "wordpress_sync", "type": "api_call", "name": "WordPress Sync",
+                        "connection_id": "wordpress", "operation": "sync_content",
+                        "input": {"bindings": {"direction": "expr: $.inputs.sync_direction"}}
+                    }]
+                },
+                'execution_config': {"execution_mode": "live", "max_concurrency": 1, "timeout_seconds": 300, "dry_run": False},
+                'credit_cost': 5, 'estimated_duration': 10, 'tier_access': ['starter', 'professional', 'enterprise'],
+                'status': 'published', 'version': '2.0', 'icon': 'sync', 'created_by': admin_user.id
             }
         ]
         
         for template_data in templates:
             template = models.WorkflowTemplate(**template_data)
             db.add(template)
-        results.append("Created 3 V2 workflow templates")
+        results.append("Created 4 V2 workflow templates (including WordPress)")
         
         # Initialize Simple Workflow System
         logger.info("Creating simple workflow system data...")
