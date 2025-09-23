@@ -424,6 +424,11 @@ class WorkflowExecution(Base):
     total_steps = Column(Integer, default=0)
     completed_steps = Column(Integer, default=0)
     
+    # Flow Management: Kanban-style status tracking
+    flow_status = Column(String(20), default="new")  # new, scheduled, in_progress, in_review, complete, error
+    flow_title = Column(String(200), nullable=True)  # User-friendly flow name
+    custom_field_values = Column(JSON, default=dict)  # Values for editable fields
+    
     # Resource usage
     credits_used = Column(Integer, default=0)
     execution_time_ms = Column(Integer, default=0)
@@ -441,10 +446,12 @@ class WorkflowExecution(Base):
     template = relationship("WorkflowTemplate", back_populates="executions")
     step_executions = relationship("WorkflowStepExecution", back_populates="execution")
     api_calls = relationship("APICall", back_populates="execution")
+    review_approvals = relationship("FlowReviewApproval", back_populates="execution")
     
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'paused')", name='check_execution_status'),
         CheckConstraint("execution_mode IN ('simulate', 'record', 'live')", name='check_execution_mode'),
+        CheckConstraint("flow_status IN ('new', 'scheduled', 'in_progress', 'in_review', 'complete', 'error')", name='check_flow_status'),
     )
 
 class WorkflowStepExecution(Base):
@@ -491,7 +498,34 @@ class WorkflowStepExecution(Base):
     
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'skipped')", name='check_step_status'),
-        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task')", name='check_step_type'),
+        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task', 'review')", name='check_step_type'),
+    )
+
+class FlowReviewApproval(Base):
+    """Review approval tracking for flow management"""
+    __tablename__ = "flow_review_approvals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    execution_id = Column(Integer, ForeignKey("workflow_executions.id"), nullable=False)
+    step_id = Column(String(100), nullable=False)  # Step ID from workflow
+    
+    # Review details
+    reviewer_type = Column(String(20), nullable=False)  # 'agency', 'client', 'admin'
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved = Column(Boolean, nullable=False)
+    comments = Column(Text, nullable=True)
+    
+    # Timestamps
+    submitted_for_review_at = Column(DateTime(timezone=True), nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    execution = relationship("WorkflowExecution")
+    reviewer = relationship("User")
+    
+    __table_args__ = (
+        CheckConstraint("reviewer_type IN ('agency', 'client', 'admin')", name='check_reviewer_type'),
     )
 
 # =============================================================================
