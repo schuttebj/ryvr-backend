@@ -23,13 +23,14 @@ logger = logging.getLogger(__name__)
 async def generate_content(
     prompt: str = Body(..., description="Content generation prompt"),
     model: str = Body("gpt-4o-mini", description="OpenAI model to use"),
-    max_tokens: int = Body(2000, description="Maximum tokens to generate"),
-    temperature: float = Body(0.7, description="Creativity level (0.0-1.0)"),
+    max_completion_tokens: int = Body(32768, description="Maximum tokens to generate"),
+    temperature: float = Body(1.0, description="Creativity level (0.0-2.0)"),
     top_p: float = Body(1.0, description="Nucleus sampling parameter"),
     frequency_penalty: float = Body(0.0, description="Frequency penalty"),
     presence_penalty: float = Body(0.0, description="Presence penalty"),
     stop: Optional[List[str]] = Body(None, description="Stop sequences"),
     system_message: Optional[str] = Body(None, description="System context message"),
+    response_format: Optional[Dict[str, str]] = Body({"type": "text"}, description="Response format"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
@@ -39,13 +40,14 @@ async def generate_content(
         result = openai_service.generate_content(
             prompt=prompt,
             model=model,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
             temperature=temperature,
             top_p=top_p,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
             stop=stop,
-            system_message=system_message
+            system_message=system_message,
+            response_format=response_format
         )
         
         # Create workflow execution record
@@ -56,7 +58,7 @@ async def generate_content(
             input_data={
                 "prompt": prompt[:500],  # Truncate for storage
                 "model": model,
-                "max_tokens": max_tokens,
+                "max_completion_tokens": max_completion_tokens,
                 "temperature": temperature
             },
             output_data={"content": result["content"][:500]},  # Truncate for storage
@@ -313,8 +315,8 @@ async def generate_email_sequence(
 async def batch_generate_content(
     prompts: List[str] = Body(..., description="List of prompts to process"),
     model: str = Body("gpt-4o-mini", description="OpenAI model to use"),
-    max_tokens: int = Body(1000, description="Maximum tokens per generation"),
-    temperature: float = Body(0.7, description="Creativity level"),
+    max_completion_tokens: int = Body(16384, description="Maximum tokens per generation"),
+    temperature: float = Body(1.0, description="Creativity level"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
@@ -324,7 +326,7 @@ async def batch_generate_content(
         results = openai_service.batch_generate(
             prompts=prompts,
             model=model,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
             temperature=temperature
         )
         
@@ -353,4 +355,39 @@ async def batch_generate_content(
         
     except Exception as e:
         logger.error(f"Batch generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to batch generate content") 
+        raise HTTPException(status_code=500, detail="Failed to batch generate content")
+
+# Model Management Endpoints
+
+@router.get("/models/available", response_model=List[Dict[str, Any]])
+async def get_available_models(
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get list of available OpenAI models"""
+    try:
+        models = openai_service.get_available_models()
+        return {
+            "success": True,
+            "models": models,
+            "count": len(models)
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch models: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch available models")
+
+@router.get("/models/recommended", response_model=Dict[str, Any])
+async def get_recommended_model(
+    task_type: str = Query("general", description="Task type: general, complex, fast, creative"),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get recommended model for a specific task type"""
+    try:
+        recommended_model = openai_service.get_recommended_model(task_type)
+        return {
+            "success": True,
+            "recommended_model": recommended_model,
+            "task_type": task_type
+        }
+    except Exception as e:
+        logger.error(f"Failed to get recommended model: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get recommended model") 

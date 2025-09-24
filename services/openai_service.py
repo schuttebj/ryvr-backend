@@ -16,18 +16,18 @@ logger = logging.getLogger(__name__)
 class OpenAIService:
     """Enhanced OpenAI API integration service with multi-tier support"""
     
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, max_tokens: Optional[int] = None):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, max_completion_tokens: Optional[int] = None):
         # Support both new multi-tier initialization and legacy initialization
         if api_key:
             # New multi-tier initialization
             self.api_key = api_key
             self.default_model = model or "gpt-4o-mini"
-            self.default_max_tokens = max_tokens or 2000
+            self.default_max_completion_tokens = max_completion_tokens or 32768
         else:
             # Legacy initialization (fallback to settings)
             self.api_key = getattr(settings, 'openai_api_key', None)
             self.default_model = getattr(settings, 'openai_model', "gpt-4o-mini")
-            self.default_max_tokens = getattr(settings, 'openai_max_tokens', 2000)
+            self.default_max_completion_tokens = getattr(settings, 'openai_max_completion_tokens', 32768)
         
         # Initialize client if API key is available
         if self.api_key:
@@ -38,32 +38,50 @@ class OpenAIService:
     def generate_content(self, 
                         prompt: str, 
                         model: str = "gpt-4o-mini",
-                        max_tokens: int = 2000,
-                        temperature: float = 0.7,
+                        max_completion_tokens: int = 32768,
+                        temperature: float = 1.0,
                         top_p: float = 1.0,
                         frequency_penalty: float = 0.0,
                         presence_penalty: float = 0.0,
                         stop: Optional[List[str]] = None,
-                        system_message: Optional[str] = None) -> Dict[str, Any]:
+                        system_message: Optional[str] = None,
+                        response_format: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Generate content using OpenAI's chat completion API"""
         try:
             messages = []
             
             if system_message:
-                messages.append({"role": "system", "content": system_message})
+                messages.append({
+                    "role": "system", 
+                    "content": [{"type": "text", "text": system_message}]
+                })
             
-            messages.append({"role": "user", "content": prompt})
+            messages.append({
+                "role": "user", 
+                "content": [{"type": "text", "text": prompt}]
+            })
             
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                frequency_penalty=frequency_penalty,
-                presence_penalty=presence_penalty,
-                stop=stop
-            )
+            # Prepare API call parameters
+            api_params = {
+                "model": model,
+                "messages": messages,
+                "max_completion_tokens": max_completion_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+                "frequency_penalty": frequency_penalty,
+                "presence_penalty": presence_penalty
+            }
+            
+            # Add optional parameters
+            if stop:
+                api_params["stop"] = stop
+            
+            if response_format:
+                api_params["response_format"] = response_format
+            else:
+                api_params["response_format"] = {"type": "text"}
+            
+            response = self.client.chat.completions.create(**api_params)
             
             return {
                 "content": response.choices[0].message.content,
@@ -139,7 +157,7 @@ class OpenAIService:
             prompt=prompt,
             system_message=system_message,
             temperature=0.7,
-            max_tokens=2000 if length > 800 else 1000
+            max_completion_tokens=32768 if length > 800 else 16384
         )
     
     def analyze_content(self, 
@@ -202,7 +220,7 @@ Return your analysis in JSON format."""
             prompt=prompt,
             system_message=system_message,
             temperature=0.3,
-            max_tokens=1500
+            max_completion_tokens=16384
         )
     
     def generate_keywords(self, 
@@ -241,7 +259,7 @@ Return the results in JSON format with the following structure:
             prompt=prompt,
             system_message=system_message,
             temperature=0.4,
-            max_tokens=1500
+            max_completion_tokens=16384
         )
     
     def generate_ad_copy(self, 
@@ -294,7 +312,7 @@ Return the results in JSON format with headlines and descriptions."""
             prompt=prompt,
             system_message=system_message,
             temperature=0.8,
-            max_tokens=800
+            max_completion_tokens=8192
         )
     
     def generate_email_sequence(self, 
@@ -337,7 +355,7 @@ Return the results in JSON format with each email including:
             prompt=prompt,
             system_message=system_message,
             temperature=0.7,
-            max_tokens=2500
+            max_completion_tokens=32768
         )
     
     def standardize_response(self, raw_response: Dict, task_type: str) -> Dict[str, Any]:
@@ -376,6 +394,64 @@ Return the results in JSON format with each email including:
         
         return results
     
+    def get_available_models(self) -> List[Dict[str, Any]]:
+        """Fetch available models from OpenAI API"""
+        try:
+            if not self.client:
+                return []
+            
+            models = self.client.models.list()
+            
+            # Filter for chat completion models and sort by creation date
+            chat_models = []
+            for model in models.data:
+                # Filter for GPT models that support chat completions
+                if any(gpt_prefix in model.id.lower() for gpt_prefix in ['gpt-3.5', 'gpt-4']):
+                    chat_models.append({
+                        "id": model.id,
+                        "created": model.created,
+                        "owned_by": model.owned_by
+                    })
+            
+            # Sort by creation date (newest first)
+            chat_models.sort(key=lambda x: x['created'], reverse=True)
+            
+            return chat_models
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch models: {e}")
+            # Return fallback models if API fails
+            return [
+                {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
+                {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
+                {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
+                {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
+            ]
+    
+    def get_recommended_model(self, task_type: str = "general") -> str:
+        """Get recommended model based on task type"""
+        # Get available models
+        models = self.get_available_models()
+        
+        # Define preferences based on task type
+        preferences = {
+            "general": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "complex": ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini", "gpt-3.5-turbo"],
+            "fast": ["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "gpt-4-turbo"],
+            "creative": ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini", "gpt-3.5-turbo"]
+        }
+        
+        preferred_models = preferences.get(task_type, preferences["general"])
+        available_model_ids = [model["id"] for model in models]
+        
+        # Return first available preferred model
+        for preferred_model in preferred_models:
+            if preferred_model in available_model_ids:
+                return preferred_model
+        
+        # Fallback to first available model or default
+        return available_model_ids[0] if available_model_ids else "gpt-4o-mini"
+    
     # =============================================================================
     # NEW INTEGRATION FRAMEWORK METHODS
     # =============================================================================
@@ -392,9 +468,13 @@ Return the results in JSON format with each email including:
             # Test with a simple completion
             response = self.client.chat.completions.create(
                 model=self.default_model,
-                messages=[{"role": "user", "content": "Test connection"}],
-                max_tokens=5,
-                temperature=0
+                messages=[{
+                    "role": "user", 
+                    "content": [{"type": "text", "text": "Test connection"}]
+                }],
+                max_completion_tokens=5,
+                temperature=0,
+                response_format={"type": "text"}
             )
             
             if response and response.choices:
@@ -421,7 +501,7 @@ Return the results in JSON format with each email including:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
         model: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate completion for integration framework"""
@@ -431,20 +511,27 @@ Return the results in JSON format with each email including:
             
             # Use provided parameters or defaults
             model = model or self.default_model
-            max_tokens = max_tokens or self.default_max_tokens
+            max_completion_tokens = max_completion_tokens or self.default_max_completion_tokens
             
             messages = []
             
             if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
+                messages.append({
+                    "role": "system", 
+                    "content": [{"type": "text", "text": system_prompt}]
+                })
             
-            messages.append({"role": "user", "content": prompt})
+            messages.append({
+                "role": "user", 
+                "content": [{"type": "text", "text": prompt}]
+            })
             
             response = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature
+                max_completion_tokens=max_completion_tokens,
+                temperature=temperature,
+                response_format={"type": "text"}
             )
             
             if response and response.choices:
