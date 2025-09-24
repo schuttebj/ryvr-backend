@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import logging
 
 from database import get_db
 from auth import (
@@ -20,6 +21,9 @@ from auth import (
 )
 import models, schemas
 from services.integration_service import IntegrationService
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -651,13 +655,13 @@ async def get_wordpress_content(
         )
 
 @router.post("/business/{business_id}/wordpress/content")
-async def receive_wordpress_content(
+async def wordpress_content_operation(
     business_id: int,
     content_data: Dict[str, Any],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Receive content from WordPress plugin"""
+    """Handle WordPress content operations - both receiving from and publishing to WordPress"""
     if not verify_business_access(db, current_user, business_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -665,27 +669,59 @@ async def receive_wordpress_content(
         )
     
     try:
-        operation = content_data.get('operation', 'create')
-        content = content_data.get('content', {})
+        # Check if this is a publishing request (from RYVR workflow to WordPress)
+        if all(key in content_data for key in ['title', 'content', 'post_type']):
+            # This is a publish operation - RYVR is publishing TO WordPress
+            logger.info(f"Publishing content to WordPress for business {business_id}: {content_data.get('title', 'Untitled')}")
+            
+            # Get WordPress integration for this business
+            integration_service = IntegrationService(db)
+            try:
+                result = await integration_service.execute_integration(
+                    integration_name="wordpress",
+                    business_id=business_id,
+                    node_config={"operation": "publish_content"},
+                    input_data=content_data,
+                    user_id=current_user.id
+                )
+                
+                return {
+                    "success": True,
+                    "message": "Content published successfully to WordPress",
+                    "post": result.get("post", {}),
+                    "operation": "publish",
+                    "business_id": business_id
+                }
+                
+            except Exception as integration_error:
+                logger.error(f"WordPress integration error: {integration_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to publish to WordPress: {str(integration_error)}"
+                )
         
-        # Log the content operation
-        logger.info(f"WordPress content {operation} for business {business_id}: {content.get('title', 'Untitled')}")
-        
-        # TODO: Process and store the WordPress content in RYVR's content system
-        # This might involve:
-        # - Storing in a content table
-        # - Triggering workflows
-        # - Processing ACF and SEO data
-        # - Creating content relationships
-        
-        # For now, acknowledge receipt
-        return {
-            "success": True,
-            "message": f"Content {operation} processed successfully",
-            "ryvr_post_id": f"ryvr_{business_id}_{content.get('wordpress_post_id', 'unknown')}",
-            "operation": operation,
-            "business_id": business_id
-        }
+        else:
+            # This is a receive operation - WordPress is sending content TO RYVR
+            operation = content_data.get('operation', 'create')
+            content = content_data.get('content', {})
+            
+            logger.info(f"Receiving WordPress content {operation} for business {business_id}: {content.get('title', 'Untitled')}")
+            
+            # TODO: Process and store the WordPress content in RYVR's content system
+            # This might involve:
+            # - Storing in a content table
+            # - Triggering workflows
+            # - Processing ACF and SEO data
+            # - Creating content relationships
+            
+            # For now, acknowledge receipt
+            return {
+                "success": True,
+                "message": f"Content {operation} processed successfully",
+                "ryvr_post_id": f"ryvr_{business_id}_{content.get('wordpress_post_id', 'unknown')}",
+                "operation": operation,
+                "business_id": business_id
+            }
         
     except Exception as e:
         logger.error(f"Failed to process WordPress content: {e}")

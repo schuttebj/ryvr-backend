@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, agencies, admin, simple_api, flows
+from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, agencies, admin, simple_api, flows, files
 from config import settings
 
 # Create database tables
@@ -52,6 +52,9 @@ app.include_router(flows.router, prefix="/api/v1", tags=["flows"])
 
 # Simple API router (legacy support)
 app.include_router(simple_api.router, tags=["simple"])
+
+# File management router
+app.include_router(files.router, tags=["files"])
 
 @app.get("/")
 async def root():

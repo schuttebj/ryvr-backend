@@ -743,3 +743,101 @@ class ClientStats(BaseModel):
     credits_used: int
     credits_remaining: int
     last_activity: Optional[datetime] = None
+
+# =============================================================================
+# FILE MANAGEMENT SCHEMAS
+# =============================================================================
+
+class FileBase(BaseModel):
+    original_name: str
+    tags: Optional[List[str]] = []
+
+class FileCreate(FileBase):
+    account_id: int
+    account_type: Literal['user', 'agency']
+    business_id: Optional[int] = None
+    auto_process: bool = True
+
+class FileUpdate(BaseModel):
+    original_name: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class FileMetadata(BaseModel):
+    mime_type: str
+    file_extension: str
+    upload_timestamp: str
+    processing_error: Optional[str] = None
+
+class File(FileBase):
+    id: int
+    account_id: int
+    account_type: str
+    business_id: Optional[int] = None
+    uploaded_by: int
+    file_name: str
+    file_type: str
+    file_size: int
+    file_path: str
+    content_text: Optional[str] = None
+    summary: Optional[str] = None
+    summary_credits_used: int
+    processing_status: str
+    metadata: Dict[str, Any]
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class FileUploadResponse(BaseModel):
+    id: int
+    file_name: str
+    original_name: str
+    file_size: int
+    file_type: str
+    processing_status: str
+    created_at: datetime
+
+class FileListResponse(BaseModel):
+    files: List[File]
+    total_count: int
+    offset: int
+    limit: int
+
+class StorageUsageResponse(BaseModel):
+    total_bytes: int
+    file_count: int
+    account_files_bytes: int
+    business_files_bytes: int
+    total_gb: float
+    limit_gb: float
+    usage_percentage: float
+
+class FileSearchRequest(BaseModel):
+    business_id: Optional[int] = None
+    search_query: Optional[str] = None
+    file_type: Optional[str] = None
+    limit: int = 50
+    offset: int = 0
+
+class FileSummaryRequest(BaseModel):
+    force_regenerate: bool = False
+
+class FileMoveRequest(BaseModel):
+    target_business_id: Optional[int] = None  # None means move to account level
+
+class FilePermissionRequest(BaseModel):
+    business_id: int
+    permission_type: Literal['read', 'write']
+
+class FilePermission(BaseModel):
+    id: int
+    file_id: int
+    business_id: int
+    permission_type: str
+    granted_by: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, JSON, ForeignKey, UniqueConstraint, CheckConstraint, Numeric
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, JSON, ForeignKey, UniqueConstraint, CheckConstraint, Numeric, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -258,6 +258,8 @@ class SubscriptionTier(Base):
     features = Column(JSON, default=list)  # array of feature flags
     workflow_access = Column(JSON, default=list)  # accessible workflow categories
     integration_limits = Column(JSON, default=dict)  # per-integration limits
+    storage_limit_gb = Column(Integer, default=5)  # Storage limit in GB
+    max_file_size_mb = Column(Integer, default=100)  # Max file size in MB
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -641,6 +643,99 @@ class APICall(Base):
     
     # Relationships
     execution = relationship("WorkflowExecution", back_populates="api_calls")
+
+# =============================================================================
+# FILE MANAGEMENT MODELS
+# =============================================================================
+
+class File(Base):
+    """File management with account and business-level organization"""
+    __tablename__ = "files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, nullable=False)  # user_id for personal, agency_id for agencies
+    account_type = Column(String(20), nullable=False)  # 'user', 'agency'
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)  # NULL for account-level files
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # File information
+    file_name = Column(String(255), nullable=False)  # Stored filename with UUID
+    original_name = Column(String(255), nullable=False)  # Original upload name
+    file_type = Column(String(100), nullable=False)  # pdf, docx, txt, etc.
+    file_size = Column(Integer, nullable=False)  # Size in bytes
+    file_path = Column(String(500), nullable=False)  # Full storage path
+    
+    # Content and processing
+    content_text = Column(Text, nullable=True)  # Extracted text content
+    summary = Column(Text, nullable=True)  # AI-generated summary
+    summary_credits_used = Column(Integer, default=0)  # OpenAI usage tracking
+    processing_status = Column(String(20), default='pending')  # pending, processing, completed, failed
+    
+    # Metadata and organization
+    tags = Column(JSON, default=list)  # User-added tags
+    metadata = Column(JSON, default=dict)  # File metadata (mime type, etc.)
+    
+    # Audit fields
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    business = relationship("Business", foreign_keys=[business_id])
+    uploader = relationship("User", foreign_keys=[uploaded_by])
+    permissions = relationship("FilePermission", back_populates="file", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        CheckConstraint("account_type IN ('user', 'agency')", name='check_account_type'),
+        CheckConstraint("processing_status IN ('pending', 'processing', 'completed', 'failed')", name='check_processing_status'),
+        # Index for efficient queries
+        Index('idx_files_account', 'account_id', 'account_type'),
+        Index('idx_files_business', 'business_id'),
+        Index('idx_files_uploader', 'uploaded_by'),
+    )
+
+class StorageUsage(Base):
+    """Track storage usage at account level"""
+    __tablename__ = "storage_usage"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, nullable=False)  # user_id or agency_id
+    account_type = Column(String(20), nullable=False)  # 'user', 'agency'
+    
+    # Usage tracking
+    total_bytes = Column(Integer, nullable=False, default=0)
+    file_count = Column(Integer, nullable=False, default=0)
+    account_files_bytes = Column(Integer, nullable=False, default=0)  # Account-level files
+    business_files_bytes = Column(Integer, nullable=False, default=0)  # All business files
+    
+    # Audit
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint('account_id', 'account_type', name='unique_storage_usage'),
+        CheckConstraint("account_type IN ('user', 'agency')", name='check_storage_account_type'),
+    )
+
+class FilePermission(Base):
+    """File sharing and access permissions between businesses"""
+    __tablename__ = "file_permissions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
+    permission_type = Column(String(20), nullable=False)  # 'read', 'write'
+    granted_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    file = relationship("File", back_populates="permissions")
+    business = relationship("Business")
+    granter = relationship("User")
+    
+    __table_args__ = (
+        UniqueConstraint('file_id', 'business_id', name='unique_file_business_permission'),
+        CheckConstraint("permission_type IN ('read', 'write')", name='check_permission_type'),
+    )
 
 # =============================================================================
 # LEGACY COMPATIBILITY (TO BE REMOVED)
