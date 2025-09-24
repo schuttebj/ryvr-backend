@@ -378,11 +378,15 @@ async def fetch_models_from_integration(
 
 @router.post("/models/fetch-with-key", response_model=List[Dict[str, Any]])
 async def fetch_models_with_api_key(
-    api_key: str = Body(..., description="OpenAI API key"),
+    request: Dict[str, str] = Body(..., description="Request with API key"),
     current_user: models.User = Depends(get_current_active_user)
 ):
     """Fetch available OpenAI models using provided API key"""
     try:
+        api_key = request.get("api_key")
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API key is required")
+        
         # Create temporary OpenAI service with provided API key
         temp_openai_service = OpenAIService(api_key=api_key)
         models = temp_openai_service.get_available_models()
