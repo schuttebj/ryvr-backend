@@ -406,7 +406,9 @@ Return the results in JSON format with each email including:
                     {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
                 ]
             
+            logger.info("🚀 Attempting to fetch models from OpenAI API: https://api.openai.com/v1/models")
             models = self.client.models.list()
+            logger.info(f"✅ Successfully fetched {len(models.data)} models from OpenAI API")
             
             # Filter for chat completion models and sort by creation date
             chat_models = []
@@ -432,10 +434,12 @@ Return the results in JSON format with each email including:
                     {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
                 ]
             
+            logger.info(f"🎯 Returning {len(chat_models)} LIVE models from OpenAI API: {[m['id'] for m in chat_models[:3]]}")
             return chat_models
             
         except Exception as e:
-            logger.error(f"Failed to fetch models from OpenAI API: {e}")
+            logger.error(f"❌ Failed to fetch models from OpenAI API: {e}")
+            logger.warning("🔄 Returning STATIC fallback models instead of live OpenAI models")
             # Always return fallback models if API fails
             return [
                 {"id": "gpt-4o", "created": 0, "owned_by": "openai"},

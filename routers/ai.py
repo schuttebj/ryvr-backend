@@ -359,14 +359,52 @@ async def batch_generate_content(
 
 # Model Management Endpoints
 
+@router.post("/models/fetch-from-integration", response_model=List[Dict[str, Any]])
+async def fetch_models_from_integration(
+    integration_id: str = Body(..., description="Integration ID to use for API key"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Fetch available OpenAI models using a specific integration's API key"""
+    try:
+        # Get the integration from localStorage/database
+        # For now, we'll expect the API key to be passed from frontend
+        # since integrations are stored in localStorage
+        raise HTTPException(status_code=400, detail="Please provide API key directly")
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch models from integration: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch models from integration")
+
+@router.post("/models/fetch-with-key", response_model=List[Dict[str, Any]])
+async def fetch_models_with_api_key(
+    api_key: str = Body(..., description="OpenAI API key"),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Fetch available OpenAI models using provided API key"""
+    try:
+        # Create temporary OpenAI service with provided API key
+        temp_openai_service = OpenAIService(api_key=api_key)
+        models = temp_openai_service.get_available_models()
+        return models
+    except Exception as e:
+        logger.error(f"Failed to fetch models with provided API key: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch models with API key")
+
 @router.get("/models/available", response_model=List[Dict[str, Any]])
 async def get_available_models(
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Get list of available OpenAI models"""
+    """Get list of available OpenAI models (fallback - returns static models)"""
     try:
-        models = openai_service.get_available_models()
-        return models
+        # Return static fallback models since we want integration-specific fetching
+        logger.info("Returning static fallback models - use /models/fetch-with-key for live models")
+        return [
+            {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
+            {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
+            {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
+            {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
+        ]
     except Exception as e:
         logger.error(f"Failed to fetch models: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch available models")
