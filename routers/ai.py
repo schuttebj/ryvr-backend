@@ -12,7 +12,7 @@ import logging
 from database import get_db
 from auth import get_current_active_user, get_current_admin_user
 import models, schemas
-from services.openai_service import openai_service
+from services.openai_service import openai_service, OpenAIService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
