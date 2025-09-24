@@ -397,8 +397,14 @@ Return the results in JSON format with each email including:
     def get_available_models(self) -> List[Dict[str, Any]]:
         """Fetch available models from OpenAI API"""
         try:
-            if not self.client:
-                return []
+            if not self.client or not self.api_key:
+                logger.warning("OpenAI client not properly configured, returning fallback models")
+                return [
+                    {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
+                    {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
+                    {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
+                    {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
+                ]
             
             models = self.client.models.list()
             
@@ -416,11 +422,21 @@ Return the results in JSON format with each email including:
             # Sort by creation date (newest first)
             chat_models.sort(key=lambda x: x['created'], reverse=True)
             
+            # If no models found, return fallback
+            if not chat_models:
+                logger.warning("No compatible models found from OpenAI API, returning fallback models")
+                return [
+                    {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
+                    {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
+                    {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
+                    {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
+                ]
+            
             return chat_models
             
         except Exception as e:
-            logger.error(f"Failed to fetch models: {e}")
-            # Return fallback models if API fails
+            logger.error(f"Failed to fetch models from OpenAI API: {e}")
+            # Always return fallback models if API fails
             return [
                 {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
                 {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},

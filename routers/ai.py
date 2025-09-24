@@ -366,11 +366,7 @@ async def get_available_models(
     """Get list of available OpenAI models"""
     try:
         models = openai_service.get_available_models()
-        return {
-            "success": True,
-            "models": models,
-            "count": len(models)
-        }
+        return models
     except Exception as e:
         logger.error(f"Failed to fetch models: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch available models")
