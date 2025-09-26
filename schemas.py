@@ -762,7 +762,7 @@ class FileUpdate(BaseModel):
     original_name: Optional[str] = None
     tags: Optional[List[str]] = None
 
-class FileMetadata(BaseModel):
+class FileMetadataInfo(BaseModel):
     mime_type: str
     file_extension: str
     upload_timestamp: str
@@ -782,7 +782,7 @@ class File(FileBase):
     summary: Optional[str] = None
     summary_credits_used: int
     processing_status: str
-    metadata: Dict[str, Any]
+    file_metadata: Dict[str, Any]
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None

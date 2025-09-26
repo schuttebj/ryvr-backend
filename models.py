@@ -673,7 +673,7 @@ class File(Base):
     
     # Metadata and organization
     tags = Column(JSON, default=list)  # User-added tags
-    metadata = Column(JSON, default=dict)  # File metadata (mime type, etc.)
+    file_metadata = Column(JSON, default=dict)  # File metadata (mime type, etc.)
     
     # Audit fields
     is_active = Column(Boolean, default=True)

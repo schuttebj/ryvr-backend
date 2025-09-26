@@ -109,7 +109,7 @@ class FileService:
             file_type=file_type,
             file_size=file_size,
             file_path=file_path,
-            metadata={
+            file_metadata={
                 'mime_type': mime_type,
                 'file_extension': file_extension,
                 'upload_timestamp': datetime.utcnow().isoformat()
@@ -213,8 +213,8 @@ class FileService:
         except Exception as e:
             logger.error(f"Error processing file {file_record.id}: {e}")
             file_record.processing_status = 'failed'
-            file_record.metadata = {
-                **file_record.metadata,
+            file_record.file_metadata = {
+                **file_record.file_metadata,
                 'processing_error': str(e)
             }
         
