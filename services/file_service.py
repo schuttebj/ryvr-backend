@@ -303,11 +303,28 @@ class FileService:
     # =============================================================================
     
     def _get_openai_api_key(self, business_id: Optional[int], account_id: int, account_type: str) -> Optional[str]:
-        """Get OpenAI API key from integrations (business-level first, then account-level)"""
+        """Get OpenAI API key from integrations (system-level first, then business/agency-level)"""
         try:
-            openai_integration = None
+            # Try system-level integration first (admin configured)
+            system_integration = self.db.query(models.SystemIntegration).join(
+                models.Integration
+            ).filter(
+                models.Integration.name == "openai",
+                models.SystemIntegration.is_active == True,
+                models.Integration.is_active == True
+            ).first()
             
-            # Try business-level integration first
+            if system_integration:
+                credentials = system_integration.credentials
+                if isinstance(credentials, str):
+                    import json
+                    credentials = json.loads(credentials)
+                api_key = credentials.get("api_key")
+                if api_key:
+                    logger.info("Using system-level OpenAI integration")
+                    return api_key
+            
+            # Try business-level integration second
             if business_id:
                 business_integration = self.db.query(models.BusinessIntegration).join(
                     models.Integration
@@ -323,7 +340,10 @@ class FileService:
                     if isinstance(credentials, str):
                         import json
                         credentials = json.loads(credentials)
-                    return credentials.get("api_key")
+                    api_key = credentials.get("api_key")
+                    if api_key:
+                        logger.info("Using business-level OpenAI integration")
+                        return api_key
             
             # Fall back to agency-level integration if account is agency
             if account_type == "agency":
@@ -341,9 +361,13 @@ class FileService:
                     if isinstance(credentials, str):
                         import json
                         credentials = json.loads(credentials)
-                    return credentials.get("api_key")
+                    api_key = credentials.get("api_key")
+                    if api_key:
+                        logger.info("Using agency-level OpenAI integration")
+                        return api_key
             
             # No integration found
+            logger.info("No OpenAI integration found at any level")
             return None
             
         except Exception as e:

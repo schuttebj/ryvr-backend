@@ -539,6 +539,25 @@ class Integration(IntegrationBase):
     class Config:
         from_attributes = True
 
+class SystemIntegrationBase(BaseModel):
+    integration_id: int
+    custom_config: Optional[Dict[str, Any]] = {}
+    credentials: Optional[Dict[str, Any]] = {}
+
+class SystemIntegrationCreate(SystemIntegrationBase):
+    pass
+
+class SystemIntegration(SystemIntegrationBase):
+    id: int
+    is_active: bool
+    last_tested: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    integration: Optional[Integration] = None
+    
+    class Config:
+        from_attributes = True
+
 class AgencyIntegrationBase(BaseModel):
     agency_id: int
     integration_id: int

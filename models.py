@@ -568,6 +568,7 @@ class Integration(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
+    system_integrations = relationship("SystemIntegration", back_populates="integration")
     agency_integrations = relationship("AgencyIntegration", back_populates="integration")
     business_integrations = relationship("BusinessIntegration", back_populates="integration")
     
@@ -575,6 +576,26 @@ class Integration(Base):
         CheckConstraint("integration_type IN ('system', 'agency', 'business')", name='check_integration_type'),
         CheckConstraint("level IN ('system', 'agency', 'business')", name='check_integration_level'),
         CheckConstraint("health_status IN ('healthy', 'degraded', 'failed', 'unknown')", name='check_health_status'),
+    )
+
+class SystemIntegration(Base):
+    """System-level integration configurations (admin managed)"""
+    __tablename__ = "system_integrations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    integration_id = Column(Integer, ForeignKey("integrations.id"), nullable=False)
+    custom_config = Column(JSON, default=dict)
+    credentials = Column(JSON, default=dict)  # encrypted API keys, etc.
+    is_active = Column(Boolean, default=True)
+    last_tested = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    integration = relationship("Integration", back_populates="system_integrations")
+    
+    __table_args__ = (
+        UniqueConstraint('integration_id', name='unique_system_integration'),
     )
 
 class AgencyIntegration(Base):

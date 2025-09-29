@@ -142,6 +142,106 @@ async def read_integration_tasks(
     return tasks
 
 # =============================================================================
+# SYSTEM-LEVEL INTEGRATIONS (ADMIN MANAGED CONFIGURATIONS)
+# =============================================================================
+
+@router.get("/system", response_model=List[schemas.SystemIntegration])
+async def get_system_integrations(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Get all system-level integration configurations (admin only)."""
+    integrations = db.query(models.SystemIntegration).filter(
+        models.SystemIntegration.is_active == True
+    ).all()
+    return integrations
+
+@router.post("/system", response_model=schemas.SystemIntegration)
+async def create_system_integration(
+    integration_data: schemas.SystemIntegrationCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Configure a system-level integration (admin only)."""
+    
+    # Verify the base integration exists
+    base_integration = db.query(models.Integration).filter(
+        models.Integration.id == integration_data.integration_id,
+        models.Integration.is_active == True
+    ).first()
+    
+    if not base_integration:
+        raise HTTPException(
+            status_code=404,
+            detail="Integration not found"
+        )
+    
+    # Check if system integration already exists
+    existing = db.query(models.SystemIntegration).filter(
+        models.SystemIntegration.integration_id == integration_data.integration_id
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="System integration already configured for this integration"
+        )
+    
+    # Create system integration
+    db_integration = models.SystemIntegration(**integration_data.dict())
+    db.add(db_integration)
+    db.commit()
+    db.refresh(db_integration)
+    
+    return db_integration
+
+@router.put("/system/{integration_id}", response_model=schemas.SystemIntegration)
+async def update_system_integration(
+    integration_id: int,
+    integration_data: schemas.SystemIntegrationCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Update a system-level integration (admin only)."""
+    
+    # Get existing system integration
+    db_integration = db.query(models.SystemIntegration).filter(
+        models.SystemIntegration.integration_id == integration_id
+    ).first()
+    
+    if not db_integration:
+        raise HTTPException(status_code=404, detail="System integration not found")
+    
+    # Update fields
+    for field, value in integration_data.dict().items():
+        setattr(db_integration, field, value)
+    
+    db.commit()
+    db.refresh(db_integration)
+    
+    return db_integration
+
+@router.delete("/system/{integration_id}")
+async def delete_system_integration(
+    integration_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Delete a system-level integration (admin only)."""
+    
+    db_integration = db.query(models.SystemIntegration).filter(
+        models.SystemIntegration.integration_id == integration_id
+    ).first()
+    
+    if not db_integration:
+        raise HTTPException(status_code=404, detail="System integration not found")
+    
+    db.delete(db_integration)
+    db.commit()
+    
+    return {"message": "System integration deleted successfully"}
+
+# =============================================================================
 # AGENCY-LEVEL INTEGRATIONS
 # =============================================================================
 
