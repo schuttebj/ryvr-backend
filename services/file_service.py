@@ -362,18 +362,21 @@ class FileService:
             if len(content) > max_content_length:
                 content = content[:max_content_length] + "...[truncated]"
             
-            # Get OpenAI API key from integrations
+            # Get OpenAI API key from integrations (preferred) or fallback to global settings
             api_key = self._get_openai_api_key(business_id, account_id, account_type)
             
-            if not api_key:
-                raise Exception("OpenAI integration not found or configured. Please set up OpenAI integration with API key.")
-            
-            # Create OpenAI service instance with integration API key
-            openai_service = OpenAIService(api_key=api_key)
+            if api_key:
+                # Use integration API key (preferred)
+                openai_service = OpenAIService(api_key=api_key)
+                logger.info(f"Using integration API key for file summarization")
+            else:
+                # Fallback to global environment variable
+                openai_service = OpenAIService()  # Uses global settings
+                logger.info(f"Using global API key for file summarization (integration not configured)")
             
             # Check if OpenAI client is properly initialized
             if not openai_service.client:
-                raise Exception("Failed to initialize OpenAI client with integration API key.")
+                raise Exception("OpenAI API key not configured. Please set up OpenAI integration or configure OPENAI_API_KEY environment variable.")
             
             # Generate summary
             system_prompt = """You are an expert at creating concise, informative summaries of documents. 
