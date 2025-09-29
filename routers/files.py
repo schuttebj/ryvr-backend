@@ -405,8 +405,12 @@ async def generate_file_summary(
     
     try:
         # Generate new summary
-        context_id = file_record.business_id or file_record.account_id
-        summary_result = await file_service.generate_file_summary(file_record.content_text, context_id)
+        summary_result = await file_service.generate_file_summary(
+            file_record.content_text, 
+            file_record.business_id,
+            file_record.account_id,
+            file_record.account_type
+        )
         
         # Update file record
         file_record.summary = summary_result['summary']

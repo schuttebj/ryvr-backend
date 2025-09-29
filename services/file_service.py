@@ -46,6 +46,7 @@ class FileService:
     
     def __init__(self, db: Session):
         self.db = db
+        from services.credit_service import CreditService
         self.credit_service = CreditService(db)
         
     # =============================================================================
@@ -204,7 +205,12 @@ class FileService:
             
             # Generate summary if content is substantial
             if content and len(content.strip()) > 100:
-                summary_result = await self.generate_file_summary(content, file_record.business_id or file_record.account_id)
+                summary_result = await self.generate_file_summary(
+                    content, 
+                    file_record.business_id, 
+                    file_record.account_id, 
+                    file_record.account_type
+                )
                 file_record.summary = summary_result['summary']
                 file_record.summary_credits_used = summary_result['credits_used']
             
@@ -293,19 +299,81 @@ class FileService:
             return ""
     
     # =============================================================================
+    # INTEGRATION HELPERS
+    # =============================================================================
+    
+    def _get_openai_api_key(self, business_id: Optional[int], account_id: int, account_type: str) -> Optional[str]:
+        """Get OpenAI API key from integrations (business-level first, then account-level)"""
+        try:
+            openai_integration = None
+            
+            # Try business-level integration first
+            if business_id:
+                business_integration = self.db.query(models.BusinessIntegration).join(
+                    models.Integration
+                ).filter(
+                    models.BusinessIntegration.business_id == business_id,
+                    models.Integration.name == "openai",
+                    models.BusinessIntegration.is_active == True,
+                    models.Integration.is_active == True
+                ).first()
+                
+                if business_integration:
+                    credentials = business_integration.credentials
+                    if isinstance(credentials, str):
+                        import json
+                        credentials = json.loads(credentials)
+                    return credentials.get("api_key")
+            
+            # Fall back to agency-level integration if account is agency
+            if account_type == "agency":
+                agency_integration = self.db.query(models.AgencyIntegration).join(
+                    models.Integration
+                ).filter(
+                    models.AgencyIntegration.agency_id == account_id,
+                    models.Integration.name == "openai",
+                    models.AgencyIntegration.is_active == True,
+                    models.Integration.is_active == True
+                ).first()
+                
+                if agency_integration:
+                    credentials = agency_integration.credentials
+                    if isinstance(credentials, str):
+                        import json
+                        credentials = json.loads(credentials)
+                    return credentials.get("api_key")
+            
+            # No integration found
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting OpenAI API key from integrations: {e}")
+            return None
+    
+    # =============================================================================
     # AI SUMMARIZATION
     # =============================================================================
     
-    async def generate_file_summary(self, content: str, context_id: int) -> Dict[str, Any]:
-        """Generate AI summary of file content"""
+    async def generate_file_summary(self, content: str, business_id: Optional[int], account_id: int, account_type: str) -> Dict[str, Any]:
+        """Generate AI summary of file content using integration API key"""
         try:
             # Truncate content if too long (OpenAI token limits)
             max_content_length = 8000  # Conservative estimate for token limits
             if len(content) > max_content_length:
                 content = content[:max_content_length] + "...[truncated]"
             
-            # Create OpenAI service instance
-            openai_service = OpenAIService()
+            # Get OpenAI API key from integrations
+            api_key = self._get_openai_api_key(business_id, account_id, account_type)
+            
+            if not api_key:
+                raise Exception("OpenAI integration not found or configured. Please set up OpenAI integration with API key.")
+            
+            # Create OpenAI service instance with integration API key
+            openai_service = OpenAIService(api_key=api_key)
+            
+            # Check if OpenAI client is properly initialized
+            if not openai_service.client:
+                raise Exception("Failed to initialize OpenAI client with integration API key.")
             
             # Generate summary
             system_prompt = """You are an expert at creating concise, informative summaries of documents. 
@@ -321,14 +389,17 @@ class FileService:
             
             if result.get('success'):
                 return {
-                    'summary': result['data']['content'],
-                    'credits_used': result['data'].get('usage', {}).get('total_tokens', 2)
+                    'summary': result['content'],
+                    'credits_used': result.get('usage', {}).get('total_tokens', 2)
                 }
             else:
                 raise Exception(f"OpenAI API error: {result.get('error', 'Unknown error')}")
                 
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
+            # Log more details for debugging
+            import traceback
+            logger.error(f"Summary generation traceback: {traceback.format_exc()}")
             return {
                 'summary': f"Auto-generated summary unavailable. Content preview: {content[:200]}...",
                 'credits_used': 0
