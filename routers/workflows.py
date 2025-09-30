@@ -205,6 +205,265 @@ async def get_workflow_template(
         raise HTTPException(status_code=500, detail="Failed to get template")
 
 
+@router.get("/templates/{template_id}/export")
+async def export_workflow_template(
+    template_id: int,
+    include_metadata: bool = True,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Export a workflow template with all configurations and integration metadata"""
+    try:
+        template = db.query(models.WorkflowTemplate).filter(
+            models.WorkflowTemplate.id == template_id
+        ).first()
+        
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        
+        # Check access permissions
+        if template.business_id:
+            if not verify_business_access(db, current_user, template.business_id):
+                raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Build export data structure
+        export_data = {
+            "export_version": "1.0",
+            "exported_at": datetime.utcnow().isoformat(),
+            "exported_by": current_user.id,
+            "workflow": {
+                "name": template.name,
+                "description": template.description,
+                "category": template.category,
+                "tags": template.tags,
+                "schema_version": template.schema_version,
+                "workflow_config": template.workflow_config,
+                "execution_config": template.execution_config,
+                "tool_catalog": template.tool_catalog,
+                "credit_cost": template.credit_cost,
+                "estimated_duration": template.estimated_duration,
+                "tier_access": template.tier_access,
+                "version": template.version,
+                "icon": template.icon
+            },
+            "integrations": [],
+            "dependencies": []
+        }
+        
+        if include_metadata:
+            # Collect integration requirements from workflow steps
+            integrations_used = set()
+            steps = template.workflow_config.get("steps", [])
+            
+            for step in steps:
+                connection_id = step.get("connection_id")
+                operation = step.get("operation")
+                
+                if connection_id:
+                    integrations_used.add(connection_id)
+            
+            # Get integration details for each connection_id
+            for integration_name in integrations_used:
+                integration = db.query(models.Integration).filter(
+                    models.Integration.provider_id == integration_name
+                ).first()
+                
+                if integration:
+                    export_data["integrations"].append({
+                        "provider_id": integration.provider_id,
+                        "name": integration.name,
+                        "provider": integration.provider,
+                        "integration_type": integration.integration_type,
+                        "required": True,
+                        "operations_used": [
+                            step.get("operation") for step in steps 
+                            if step.get("connection_id") == integration_name
+                        ]
+                    })
+                else:
+                    # Unknown integration
+                    export_data["integrations"].append({
+                        "provider_id": integration_name,
+                        "name": f"Unknown Integration ({integration_name})",
+                        "provider": "unknown",
+                        "integration_type": "unknown",
+                        "required": True,
+                        "operations_used": [
+                            step.get("operation") for step in steps 
+                            if step.get("connection_id") == integration_name
+                        ],
+                        "status": "missing"
+                    })
+        
+        return export_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export workflow template: {e}")
+        raise HTTPException(status_code=500, detail="Failed to export template")
+
+
+@router.post("/templates/import")
+async def import_workflow_template(
+    import_data: Dict[str, Any],
+    business_id: Optional[int] = None,
+    override_name: Optional[str] = None,
+    validate_only: bool = False,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Import a workflow template with graceful handling of missing integrations"""
+    try:
+        # Validate import data structure
+        if "workflow" not in import_data:
+            raise HTTPException(status_code=400, detail="Invalid import data: missing 'workflow' section")
+        
+        workflow_data = import_data["workflow"]
+        required_fields = ["name", "workflow_config", "execution_config"]
+        
+        for field in required_fields:
+            if field not in workflow_data:
+                raise HTTPException(status_code=400, detail=f"Invalid import data: missing '{field}' in workflow section")
+        
+        # Check business access if specified
+        if business_id:
+            if not verify_business_access(db, current_user, business_id):
+                raise HTTPException(status_code=403, detail="Access denied to business")
+        
+        # Validate integrations and build status report
+        integration_status = []
+        missing_integrations = []
+        workflow_steps = workflow_data["workflow_config"].get("steps", [])
+        
+        for step in workflow_steps:
+            connection_id = step.get("connection_id")
+            if connection_id:
+                # Check if integration exists in current system
+                integration = db.query(models.Integration).filter(
+                    models.Integration.provider_id == connection_id
+                ).first()
+                
+                if integration:
+                    # Check if business has access to this integration
+                    if business_id:
+                        business_integration = db.query(models.BusinessIntegration).filter(
+                            models.BusinessIntegration.business_id == business_id,
+                            models.BusinessIntegration.integration_id == integration.id,
+                            models.BusinessIntegration.is_active == True
+                        ).first()
+                        
+                        if business_integration:
+                            integration_status.append({
+                                "step_id": step.get("id"),
+                                "connection_id": connection_id,
+                                "integration_name": integration.name,
+                                "status": "available",
+                                "configured": True
+                            })
+                        else:
+                            integration_status.append({
+                                "step_id": step.get("id"),
+                                "connection_id": connection_id,
+                                "integration_name": integration.name,
+                                "status": "not_configured",
+                                "configured": False,
+                                "message": "Integration exists but not configured for this business"
+                            })
+                    else:
+                        integration_status.append({
+                            "step_id": step.get("id"),
+                            "connection_id": connection_id,
+                            "integration_name": integration.name,
+                            "status": "available",
+                            "configured": True
+                        })
+                else:
+                    # Integration not found in system
+                    missing_integrations.append(connection_id)
+                    integration_status.append({
+                        "step_id": step.get("id"),
+                        "connection_id": connection_id,
+                        "integration_name": f"Unknown ({connection_id})",
+                        "status": "missing",
+                        "configured": False,
+                        "message": "Integration not available in this system"
+                    })
+        
+        # If validate_only is True, return status without creating the workflow
+        if validate_only:
+            return {
+                "valid": len(missing_integrations) == 0,
+                "integration_status": integration_status,
+                "missing_integrations": missing_integrations,
+                "workflow_name": workflow_data["name"],
+                "total_steps": len(workflow_steps),
+                "steps_with_integrations": len([s for s in workflow_steps if s.get("connection_id")])
+            }
+        
+        # Create the workflow template, preserving all settings except missing integrations
+        new_template = models.WorkflowTemplate(
+            name = override_name or workflow_data["name"],
+            description = workflow_data.get("description"),
+            category = workflow_data.get("category", "imported"),
+            tags = workflow_data.get("tags", []),
+            schema_version = workflow_data.get("schema_version", "ryvr.workflow.v1"),
+            workflow_config = workflow_data["workflow_config"],
+            execution_config = workflow_data["execution_config"],
+            tool_catalog = workflow_data.get("tool_catalog"),
+            business_id = business_id,
+            credit_cost = workflow_data.get("credit_cost", 0),
+            estimated_duration = workflow_data.get("estimated_duration"),
+            tier_access = workflow_data.get("tier_access", []),
+            status = "draft",  # Always import as draft for review
+            version = workflow_data.get("version", "1.0"),
+            icon = workflow_data.get("icon"),
+            created_by = current_user.id
+        )
+        
+        db.add(new_template)
+        db.flush()  # Get the ID but don't commit yet
+        
+        # Add import metadata to track import details
+        import_metadata = {
+            "imported_at": datetime.utcnow().isoformat(),
+            "imported_by": current_user.id,
+            "import_source": import_data.get("exported_by"),
+            "original_export_date": import_data.get("exported_at"),
+            "export_version": import_data.get("export_version"),
+            "integration_status": integration_status,
+            "missing_integrations": missing_integrations
+        }
+        
+        # Store import metadata in the tool_catalog field if it's empty
+        if not new_template.tool_catalog:
+            new_template.tool_catalog = {"import_metadata": import_metadata}
+        else:
+            new_template.tool_catalog["import_metadata"] = import_metadata
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "template_id": new_template.id,
+            "template_name": new_template.name,
+            "status": new_template.status,
+            "integration_status": integration_status,
+            "missing_integrations": missing_integrations,
+            "warnings": [
+                f"Step '{status['step_id']}' has missing integration '{status['connection_id']}'"
+                for status in integration_status if status["status"] == "missing"
+            ],
+            "message": f"Workflow imported successfully. {len(missing_integrations)} integration(s) need to be reconnected." if missing_integrations else "Workflow imported successfully with all integrations available."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to import workflow template: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to import template: {str(e)}")
+
+
 @router.post("/templates/{template_id}/validate")
 async def validate_workflow_template(
     template_id: int,

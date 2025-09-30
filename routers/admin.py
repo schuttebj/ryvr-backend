@@ -381,6 +381,28 @@ async def reset_and_initialize_system(
         db.add(sample_workflow)
         results.append("Created sample simple workflow")
         
+        # Create system_integrations table for admin-configured integrations
+        logger.info("Creating system_integrations table...")
+        try:
+            # Create the system_integrations table directly via SQL
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_integrations (
+                    id SERIAL PRIMARY KEY,
+                    integration_id INTEGER NOT NULL REFERENCES integrations(id),
+                    custom_config JSON DEFAULT '{}',
+                    credentials JSON DEFAULT '{}',
+                    is_active BOOLEAN DEFAULT true,
+                    last_tested TIMESTAMP WITH TIME ZONE NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE NULL,
+                    CONSTRAINT unique_system_integration UNIQUE (integration_id)
+                );
+            """))
+            results.append("Created system_integrations table")
+        except Exception as e:
+            logger.warning(f"system_integrations table creation warning: {e}")
+            results.append("system_integrations table already exists or creation failed")
+        
         db.commit()
         db.close()
         
@@ -397,15 +419,16 @@ async def reset_and_initialize_system(
             },
             "system_ready": {
                 "subscription_tiers": ["Starter ($29/mo)", "Professional ($99/mo)", "Enterprise ($299/mo)"],
-                "integrations": ["DataForSEO (sandbox ready)", "OpenAI (requires API key)"],
+                "integrations": ["DataForSEO (sandbox ready)", "OpenAI (requires API key)", "System integrations table ready"],
                 "workflow_templates": ["Basic SEO Analysis (25 credits)", "AI Content Creation (15 credits)", "SEO Quick Check (5 credits)"],
-                "database": "Fresh schema with all tables"
+                "database": "Fresh schema with all tables including system_integrations"
             },
             "next_steps": [
                 "1. Login: POST /api/v1/auth/login",
-                "2. Configure API keys: GET /api/v1/integrations", 
-                "3. Test workflows: GET /api/v1/workflows/templates",
-                "4. Create agencies/businesses as needed"
+                "2. Configure system OpenAI integration: POST /api/v1/integrations/system", 
+                "3. Test file summarization: Upload file and generate summary",
+                "4. Configure other API keys: GET /api/v1/integrations",
+                "5. Test workflows: GET /api/v1/workflows/templates"
             ],
             "timestamp": datetime.utcnow()
         }
