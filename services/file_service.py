@@ -319,15 +319,37 @@ class FileService:
             # Try system-level integration first (admin configured)
             logger.error("🔍 Checking for system-level OpenAI integration...")
             try:
+                # Debug: Check what integrations exist
+                all_integrations = self.db.query(models.Integration).filter(models.Integration.is_active == True).all()
+                logger.error(f"🔍 All active integrations: {[(i.id, i.name, i.provider) for i in all_integrations]}")
+                
+                # Debug: Check what system integrations exist
+                all_system_integrations = self.db.query(models.SystemIntegration).filter(models.SystemIntegration.is_active == True).all()
+                logger.error(f"🔍 All system integrations: {[(si.id, si.integration_id) for si in all_system_integrations]}")
+                
+                # Try different name variations
                 system_integration = self.db.query(models.SystemIntegration).join(
                     models.Integration
                 ).filter(
-                    models.Integration.name == "openai",
+                    models.Integration.name.ilike("%openai%"),  # Case insensitive
                     models.SystemIntegration.is_active == True,
                     models.Integration.is_active == True
                 ).first()
                 
+                if not system_integration:
+                    # Try by provider instead of name
+                    system_integration = self.db.query(models.SystemIntegration).join(
+                        models.Integration
+                    ).filter(
+                        models.Integration.provider.ilike("%openai%"),
+                        models.SystemIntegration.is_active == True,
+                        models.Integration.is_active == True
+                    ).first()
+                
                 logger.error(f"🔍 System integration found: {system_integration is not None}")
+                if system_integration:
+                    logger.error(f"🔍 Found integration details: ID={system_integration.integration_id}, credentials={bool(system_integration.credentials)}")
+                    
             except Exception as query_error:
                 logger.error(f"❌ Database query failed: {query_error}")
                 return None

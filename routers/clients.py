@@ -209,8 +209,24 @@ def generate_business_profile(
         raise HTTPException(status_code=400, detail="Client must complete questionnaire before generating profile")
     
     try:
-        # Get OpenAI API key from environment or integrations
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        # Get OpenAI API key from system integration (no hardcoded env vars)
+        openai_api_key = None
+        
+        # Try to get from system integration first
+        system_integration = db.query(models.SystemIntegration).join(
+            models.Integration
+        ).filter(
+            models.Integration.provider == "openai",
+            models.SystemIntegration.is_active == True,
+            models.Integration.is_active == True
+        ).first()
+        
+        if system_integration and system_integration.credentials:
+            credentials = system_integration.credentials
+            if isinstance(credentials, str):
+                import json
+                credentials = json.loads(credentials)
+            openai_api_key = credentials.get("api_key")
         
         if not openai_api_key:
             # Try to get from business or agency integrations

@@ -543,6 +543,16 @@ class Integration(Base):
     provider = Column(String(100), nullable=False)  # dataforseo, openai, google
     integration_type = Column(String(20), nullable=False)  # system, agency, business
     level = Column(String(20), nullable=False)  # system, agency, business (which level can configure)
+    
+    # NEW: Integration behavior configuration
+    is_system_wide = Column(Boolean, default=False)  # If true, admin configures once for everyone
+    requires_user_config = Column(Boolean, default=True)  # If false, uses system config only
+    available_to_roles = Column(JSON, default=lambda: ["admin", "agency", "individual"])  # Which roles can use this
+    
+    # NEW: Admin control flags
+    is_enabled_for_agencies = Column(Boolean, default=True)
+    is_enabled_for_individuals = Column(Boolean, default=True)
+    is_enabled_for_businesses = Column(Boolean, default=True)
     config_schema = Column(JSON, default=dict)  # configuration schema
     
     # V2 Workflow support

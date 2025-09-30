@@ -167,6 +167,34 @@ async def reset_and_initialize_system(
                     },
                     "required": ["username", "password"]
                 },
+                # System-wide SEO data service
+                "is_system_wide": True,
+                "requires_user_config": False,
+                "available_to_roles": ["admin", "agency", "individual"],
+                "is_enabled_for_agencies": True,
+                "is_enabled_for_individuals": True, 
+                "is_enabled_for_businesses": True,
+                "is_active": True
+            },
+            {
+                "name": "Google Analytics", "provider": "google_analytics",
+                "integration_type": "account", "level": "account",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "client_id": {"type": "string"},
+                        "client_secret": {"type": "string"},
+                        "refresh_token": {"type": "string"}
+                    },
+                    "required": ["client_id", "client_secret"]
+                },
+                # Account-level: Users configure their GA account
+                "is_system_wide": False,
+                "requires_user_config": True,
+                "available_to_roles": ["agency", "individual"],
+                "is_enabled_for_agencies": True,
+                "is_enabled_for_individuals": True,
+                "is_enabled_for_businesses": True,  # Businesses can select properties
                 "is_active": True
             },
             {
@@ -181,6 +209,13 @@ async def reset_and_initialize_system(
                     },
                     "required": ["api_key"]
                 },
+                # NEW: System-wide configuration
+                "is_system_wide": True,  # Admin configures once, everyone uses
+                "requires_user_config": False,  # Users don't need to configure
+                "available_to_roles": ["admin", "agency", "individual"],
+                "is_enabled_for_agencies": True,
+                "is_enabled_for_individuals": True,
+                "is_enabled_for_businesses": True,
                 "is_active": True
             },
             {
@@ -199,6 +234,13 @@ async def reset_and_initialize_system(
                     },
                     "required": ["site_url", "api_key"]
                 },
+                # Business-level: Each business configures their own WP site
+                "is_system_wide": False,
+                "requires_user_config": True,
+                "available_to_roles": ["agency", "individual"],
+                "is_enabled_for_agencies": True,
+                "is_enabled_for_individuals": True,
+                "is_enabled_for_businesses": True,
                 "provider_id": "wordpress",
                 "is_active": True
             }
@@ -207,7 +249,7 @@ async def reset_and_initialize_system(
         for int_data in integrations:
             integration = models.Integration(**int_data)
             db.add(integration)
-        results.append("Created 3 system integrations")
+        results.append("Created 4 integrations with proper level separation: System (OpenAI, DataForSEO), Account (Google Analytics), Business (WordPress)")
         
         # Create V2 workflow templates
         logger.info("Creating V2 workflow templates...")

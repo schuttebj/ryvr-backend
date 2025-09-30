@@ -12,9 +12,24 @@ class BusinessProfileService:
     
     @staticmethod
     def get_openai_client(db: Session, user_id: int) -> Optional[str]:
-        """Get OpenAI API key from environment or user integrations"""
-        # First try environment variable
-        api_key = os.getenv("OPENAI_API_KEY")
+        """Get OpenAI API key from system integration (no hardcoded env vars)"""
+        # Try to get from system integration first
+        api_key = None
+        
+        system_integration = db.query(models.SystemIntegration).join(
+            models.Integration
+        ).filter(
+            models.Integration.provider == "openai",
+            models.SystemIntegration.is_active == True,
+            models.Integration.is_active == True
+        ).first()
+        
+        if system_integration and system_integration.credentials:
+            credentials = system_integration.credentials
+            if isinstance(credentials, str):
+                import json
+                credentials = json.loads(credentials)
+            api_key = credentials.get("api_key")
         
         if not api_key:
             # Try to get from user's integrations

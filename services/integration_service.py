@@ -252,13 +252,37 @@ class IntegrationService:
             }
         
         elif provider == "openai":
+            # Get API key from system integration instead of hardcoded env var
+            system_integration = self.db.query(models.SystemIntegration).join(
+                models.Integration
+            ).filter(
+                models.Integration.id == integration.id,
+                models.SystemIntegration.is_active == True,
+                models.Integration.is_active == True
+            ).first()
+            
+            if system_integration and system_integration.credentials:
+                credentials = system_integration.credentials
+                if isinstance(credentials, str):
+                    import json
+                    credentials = json.loads(credentials)
+                
+                return {
+                    "provider": "openai",
+                    "level": "system", 
+                    "integration_id": integration.id,
+                    "api_key": credentials.get("api_key"),
+                    "model": credentials.get("model", "gpt-4o-mini"),
+                    "max_tokens": credentials.get("max_tokens", 2000)
+                }
+            
+            # No system integration configured
             return {
                 "provider": "openai",
                 "level": "system",
                 "integration_id": integration.id,
-                "api_key": os.getenv("OPENAI_API_KEY"),
-                "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                "max_tokens": int(os.getenv("OPENAI_MAX_TOKENS", "2000"))
+                "api_key": None,
+                "error": "OpenAI system integration not configured"
             }
         
         return {
