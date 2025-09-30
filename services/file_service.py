@@ -305,19 +305,32 @@ class FileService:
     def _get_openai_api_key(self, business_id: Optional[int], account_id: int, account_type: str) -> Optional[str]:
         """Get OpenAI API key from integrations (system-level first, then business/agency-level)"""
         try:
-            logger.info(f"🔍 Looking for OpenAI API key - business_id: {business_id}, account_id: {account_id}, account_type: {account_type}")
+            logger.error(f"🔍 Looking for OpenAI API key - business_id: {business_id}, account_id: {account_id}, account_type: {account_type}")
+            
+            # Check if SystemIntegration model exists
+            try:
+                logger.error("🔍 Checking if SystemIntegration model is available...")
+                hasattr(models, 'SystemIntegration')
+                logger.error("🔍 SystemIntegration model exists!")
+            except Exception as model_check_error:
+                logger.error(f"❌ SystemIntegration model check failed: {model_check_error}")
+                return None
             
             # Try system-level integration first (admin configured)
-            logger.info("🔍 Checking for system-level OpenAI integration...")
-            system_integration = self.db.query(models.SystemIntegration).join(
-                models.Integration
-            ).filter(
-                models.Integration.name == "openai",
-                models.SystemIntegration.is_active == True,
-                models.Integration.is_active == True
-            ).first()
-            
-            logger.info(f"🔍 System integration found: {system_integration is not None}")
+            logger.error("🔍 Checking for system-level OpenAI integration...")
+            try:
+                system_integration = self.db.query(models.SystemIntegration).join(
+                    models.Integration
+                ).filter(
+                    models.Integration.name == "openai",
+                    models.SystemIntegration.is_active == True,
+                    models.Integration.is_active == True
+                ).first()
+                
+                logger.error(f"🔍 System integration found: {system_integration is not None}")
+            except Exception as query_error:
+                logger.error(f"❌ Database query failed: {query_error}")
+                return None
             
             if system_integration:
                 credentials = system_integration.credentials
