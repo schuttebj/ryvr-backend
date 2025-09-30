@@ -388,13 +388,17 @@ class FileService:
     async def generate_file_summary(self, content: str, business_id: Optional[int], account_id: int, account_type: str) -> Dict[str, Any]:
         """Generate AI summary of file content using integration API key"""
         try:
+            logger.error(f"🚀 STARTING FILE SUMMARY - business_id: {business_id}, account_id: {account_id}, account_type: {account_type}")
+            
             # Truncate content if too long (OpenAI token limits)
             max_content_length = 8000  # Conservative estimate for token limits
             if len(content) > max_content_length:
                 content = content[:max_content_length] + "...[truncated]"
             
+            logger.error("🚀 CALLING _get_openai_api_key...")
             # Get OpenAI API key from integrations (preferred) or fallback to global settings
             api_key = self._get_openai_api_key(business_id, account_id, account_type)
+            logger.error(f"🚀 API KEY RESULT: {api_key is not None} (length: {len(api_key) if api_key else 0})")
             
             if api_key:
                 # Use integration API key (preferred)
