@@ -178,7 +178,7 @@ async def reset_and_initialize_system(
             },
             {
                 "name": "Google Analytics", "provider": "google_analytics",
-                "integration_type": "account", "level": "account",
+                "integration_type": "agency", "level": "agency",  # Use valid constraint values
                 "config_schema": {
                     "type": "object",
                     "properties": {
@@ -188,7 +188,7 @@ async def reset_and_initialize_system(
                     },
                     "required": ["client_id", "client_secret"]
                 },
-                # Account-level: Users configure their GA account
+                # Agency-level: Users configure their GA account
                 "is_system_wide": False,
                 "requires_user_config": True,
                 "available_to_roles": ["agency", "individual"],
