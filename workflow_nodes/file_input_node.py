@@ -35,7 +35,7 @@ class FileInputNode:
                     "type": "string",
                     "title": "Output Type",
                     "description": "Type of output to provide",
-                    "enum": ["content", "summary", "metadata", "file_url"],
+                    "enum": ["content", "summary", "title", "metadata", "file_url", "all"],
                     "default": "content"
                 },
                 "business_context": {
@@ -66,6 +66,10 @@ class FileInputNode:
                 "file_summary": {
                     "type": ["string", "null"],
                     "description": "AI-generated summary of the file"
+                },
+                "file_title": {
+                    "type": ["string", "null"],
+                    "description": "Original filename/title of the file"
                 },
                 "file_url": {
                     "type": ["string", "null"],
@@ -156,6 +160,9 @@ class FileInputNode:
             elif output_type == "summary":
                 output["file_summary"] = file_record.summary
                 
+            elif output_type == "title":
+                output["file_title"] = file_record.original_name
+                
             elif output_type == "metadata":
                 output["file_metadata"] = {
                     "id": file_record.id,
@@ -169,6 +176,22 @@ class FileInputNode:
             elif output_type == "file_url":
                 # Generate download URL (this would be implemented based on your API structure)
                 output["file_url"] = f"/api/v1/files/{file_record.id}/download"
+                
+            elif output_type == "all":
+                # Provide all available data
+                output["file_content"] = file_record.content_text
+                output["file_summary"] = file_record.summary
+                output["file_title"] = file_record.original_name
+                output["file_url"] = f"/api/v1/files/{file_record.id}/download"
+                output["file_metadata"] = {
+                    "id": file_record.id,
+                    "original_name": file_record.original_name,
+                    "file_type": file_record.file_type,
+                    "file_size": file_record.file_size,
+                    "created_at": file_record.created_at.isoformat(),
+                    "processing_status": file_record.processing_status,
+                    "tags": file_record.tags
+                }
             
             # Include metadata if requested
             if include_metadata:
@@ -205,7 +228,7 @@ class FileInputNode:
             errors.append("File ID is required")
         
         output_type = config.get("output_type")
-        valid_output_types = ["content", "summary", "metadata", "file_url"]
+        valid_output_types = ["content", "summary", "title", "metadata", "file_url", "all"]
         if output_type not in valid_output_types:
             errors.append(f"Output type must be one of: {', '.join(valid_output_types)}")
         
