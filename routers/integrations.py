@@ -241,6 +241,92 @@ async def delete_system_integration(
     
     return {"message": "System integration deleted successfully"}
 
+@router.post("/{integration_id}/toggle-system", response_model=Dict[str, Any])
+async def toggle_system_integration(
+    integration_id: int,
+    request_data: Dict[str, Any] = {},
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Toggle system integration status (admin only)"""
+    
+    # Verify the base integration exists
+    base_integration = db.query(models.Integration).filter(
+        models.Integration.id == integration_id,
+        models.Integration.is_active == True
+    ).first()
+    
+    if not base_integration:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    
+    # Check if system integration already exists
+    existing_system_integration = db.query(models.SystemIntegration).filter(
+        models.SystemIntegration.integration_id == integration_id
+    ).first()
+    
+    if existing_system_integration:
+        # Toggle off - remove system integration
+        db.delete(existing_system_integration)
+        db.commit()
+        
+        return {
+            "success": True,
+            "action": "disabled",
+            "message": f"{base_integration.name} removed from system integrations",
+            "is_system_integration": False
+        }
+    else:
+        # Toggle on - create system integration
+        credentials = request_data.get("credentials", {})
+        custom_config = request_data.get("custom_config", {})
+        
+        if not credentials and base_integration.name.lower() == "openai":
+            # For OpenAI, require API key
+            raise HTTPException(
+                status_code=400, 
+                detail="OpenAI API key is required in credentials field"
+            )
+        
+        system_integration = models.SystemIntegration(
+            integration_id=integration_id,
+            credentials=credentials,
+            custom_config=custom_config,
+            is_active=True
+        )
+        
+        db.add(system_integration)
+        db.commit()
+        db.refresh(system_integration)
+        
+        return {
+            "success": True,
+            "action": "enabled",
+            "message": f"{base_integration.name} configured as system integration",
+            "is_system_integration": True,
+            "system_integration_id": system_integration.id
+        }
+
+@router.get("/{integration_id}/system-status", response_model=Dict[str, Any])
+async def get_system_integration_status(
+    integration_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Get system integration status for an integration (admin only)"""
+    
+    # Check if system integration exists
+    system_integration = db.query(models.SystemIntegration).filter(
+        models.SystemIntegration.integration_id == integration_id,
+        models.SystemIntegration.is_active == True
+    ).first()
+    
+    return {
+        "integration_id": integration_id,
+        "is_system_integration": system_integration is not None,
+        "system_integration_id": system_integration.id if system_integration else None,
+        "has_credentials": bool(system_integration.credentials) if system_integration else False
+    }
+
 # =============================================================================
 # AGENCY-LEVEL INTEGRATIONS
 # =============================================================================
