@@ -11,7 +11,7 @@ import logging
 import models
 import schemas
 from database import get_db
-from auth import get_current_active_user, get_current_business
+from auth import get_current_active_user
 from services.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
@@ -31,11 +31,7 @@ def get_embedding_service(db: Session = Depends(get_db)) -> EmbeddingService:
 def get_account_info(current_user: models.User) -> tuple[int, str]:
     """Get account ID and type from current user"""
     if current_user.role == 'agency':
-        # Get agency ID
-        agency_user = db.query(models.AgencyUser).filter(
-            models.AgencyUser.user_id == current_user.id
-        ).first()
-        return agency_user.agency_id if agency_user else current_user.id, 'agency'
+        return current_user.id, 'agency'
     else:
         return current_user.id, 'user'
 
