@@ -929,3 +929,23 @@ class WorkflowContextResponse(BaseModel):
     sources: List[ContextSource]
     query: str
     results_used: int
+
+class ChatRequest(BaseModel):
+    """Request for RAG chat with documents"""
+    message: str
+    business_id: int
+    max_context_tokens: int = 4000
+    top_k: int = 5
+    similarity_threshold: float = 0.7
+    model: str = "gpt-4"  # or gpt-3.5-turbo
+    temperature: float = 0.7
+
+class ChatResponse(BaseModel):
+    """Response from RAG chat"""
+    success: bool
+    message: str  # User's message
+    response: str  # AI's response
+    sources: List[ContextSource]  # Documents used for context
+    context_found: bool
+    tokens_used: int
+    credits_used: int

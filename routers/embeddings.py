@@ -483,3 +483,160 @@ async def get_embedding_stats(
         logger.error(f"Error getting embedding stats: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get statistics")
 
+
+# =============================================================================
+# RAG CHAT ENDPOINT
+# =============================================================================
+
+@router.post("/chat", response_model=schemas.ChatResponse)
+async def chat_with_documents(
+    request: schemas.ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user),
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    RAG (Retrieval Augmented Generation) Chat
+    
+    Ask questions and get AI answers based on your uploaded documents
+    
+    - Searches your business documents for relevant context
+    - Generates AI response using GPT-4/GPT-3.5-turbo
+    - Returns answer with source citations
+    - Tracks credit usage
+    
+    Perfect for:
+    - Asking questions about your documents
+    - Getting summaries across multiple files
+    - Finding specific information quickly
+    """
+    try:
+        # Validate business access
+        business_user = db.query(models.BusinessUser).filter(
+            models.BusinessUser.business_id == request.business_id,
+            models.BusinessUser.user_id == current_user.id,
+            models.BusinessUser.is_active == True
+        ).first()
+        
+        if not business_user and current_user.role != 'admin':
+            raise HTTPException(status_code=403, detail="Access denied to this business")
+        
+        account_id, account_type = get_account_info(current_user)
+        
+        # Step 1: Get relevant context from documents
+        logger.info(f"Searching documents for query: {request.message}")
+        context_result = await embedding_service.get_context_for_workflow(
+            query=request.message,
+            business_id=request.business_id,
+            account_id=account_id,
+            account_type=account_type,
+            max_tokens=request.max_context_tokens,
+            top_k=request.top_k,
+            similarity_threshold=request.similarity_threshold,
+            include_sources=True
+        )
+        
+        context_found = bool(context_result.get('context', '').strip())
+        
+        # Step 2: Generate AI response with context
+        from services.openai_service import OpenAIService
+        
+        # Get OpenAI API key
+        api_key = embedding_service._get_openai_api_key(
+            request.business_id, 
+            account_id, 
+            account_type
+        )
+        
+        if not api_key:
+            raise HTTPException(
+                status_code=400, 
+                detail="OpenAI API key not configured. Please set up OpenAI integration."
+            )
+        
+        openai_service = OpenAIService(api_key=api_key)
+        
+        # Build system prompt
+        system_prompt = """You are a helpful AI assistant that answers questions based on the user's uploaded documents.
+
+Your job is to:
+1. Answer questions accurately using ONLY the provided context from documents
+2. If the context doesn't contain the answer, say "I don't have enough information in your documents to answer that."
+3. Cite which documents you're referencing when possible
+4. Be concise but thorough
+5. If asked about multiple documents, synthesize information across them
+
+Always base your answers on the provided context. Don't make up information."""
+
+        # Build user prompt with context
+        if context_found:
+            user_prompt = f"""Context from uploaded documents:
+---
+{context_result['context']}
+---
+
+User Question: {request.message}
+
+Please answer the question based on the context above. If the context doesn't contain relevant information, say so."""
+        else:
+            user_prompt = f"""No relevant documents were found for this question.
+
+User Question: {request.message}
+
+Please let the user know that you don't have any relevant documents to answer their question, and suggest they upload documents related to their question."""
+        
+        # Generate response
+        logger.info(f"Generating AI response using model: {request.model}")
+        ai_result = await openai_service.generate_completion(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            model=request.model,
+            temperature=request.temperature,
+            max_completion_tokens=1000
+        )
+        
+        if not ai_result.get('success'):
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI generation failed: {ai_result.get('error', 'Unknown error')}"
+            )
+        
+        # Calculate total credits used
+        # Embedding search credits are tracked separately
+        # AI generation credits from token usage
+        tokens_used = ai_result.get('usage', {}).get('total_tokens', 0)
+        credits_used = tokens_used  # 1 token = 1 credit (adjust as needed)
+        
+        # Track credits
+        from services.credit_service import CreditService
+        credit_service = CreditService(db)
+        
+        await credit_service.deduct_credits(
+            business_id=request.business_id,
+            amount=credits_used,
+            description=f"RAG Chat: '{request.message[:50]}...'",
+            category='ai_processing'
+        )
+        
+        # Format sources for response
+        sources = [
+            schemas.ContextSource(**source)
+            for source in context_result.get('sources', [])
+        ]
+        
+        return schemas.ChatResponse(
+            success=True,
+            message=request.message,
+            response=ai_result['content'],
+            sources=sources,
+            context_found=context_found,
+            tokens_used=tokens_used,
+            credits_used=credits_used
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in RAG chat: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
