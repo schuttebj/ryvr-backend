@@ -305,6 +305,108 @@ async def get_workflow_context(
 # UTILITY ENDPOINTS
 # =============================================================================
 
+@router.get("/files/{business_id}")
+async def list_files_with_embeddings(
+    business_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """
+    List all files with their embedding status for a business
+    
+    Shows which files have been embedded and which haven't
+    Useful for debugging and monitoring embedding coverage
+    """
+    try:
+        # Validate access
+        business_user = db.query(models.BusinessUser).filter(
+            models.BusinessUser.business_id == business_id,
+            models.BusinessUser.user_id == current_user.id,
+            models.BusinessUser.is_active == True
+        ).first()
+        
+        if not business_user and current_user.role != 'admin':
+            raise HTTPException(status_code=403, detail="Access denied to this business")
+        
+        # Get all files with embedding info
+        files = db.query(models.File).filter(
+            models.File.business_id == business_id,
+            models.File.is_active == True
+        ).order_by(models.File.created_at.desc()).all()
+        
+        # Get chunk counts for each file
+        file_list = []
+        for file in files:
+            chunk_count = db.query(models.DocumentChunk).filter(
+                models.DocumentChunk.file_id == file.id
+            ).count()
+            
+            # Check if chunks have embeddings
+            chunks_with_embeddings = db.query(models.DocumentChunk).filter(
+                models.DocumentChunk.file_id == file.id,
+                models.DocumentChunk.embedding.isnot(None)
+            ).count()
+            
+            # Determine if file is successfully embedded
+            has_summary_embedding = file.summary_embedding is not None
+            has_content_embedding = file.content_embedding is not None
+            has_chunk_embeddings = chunks_with_embeddings > 0
+            is_embedded = has_summary_embedding or has_content_embedding or has_chunk_embeddings
+            
+            # Create descriptive status
+            if file.embedding_status == 'completed' and is_embedded:
+                embedding_summary = f"Successfully embedded ({chunks_with_embeddings} chunks)"
+            elif file.embedding_status == 'failed':
+                embedding_summary = "Embedding failed"
+            elif file.embedding_status == 'processing':
+                embedding_summary = "Processing embeddings..."
+            elif is_embedded:
+                embedding_summary = "Embedded (partial)"
+            else:
+                embedding_summary = "Not yet embedded"
+            
+            file_list.append({
+                'file_id': file.id,
+                'filename': file.original_name,
+                'file_type': file.file_type,
+                'created_at': file.created_at.isoformat() if file.created_at else None,
+                'embedding_status': file.embedding_status or 'pending',
+                'is_embedded': is_embedded,
+                'embedding_summary': embedding_summary,
+                'has_summary_embedding': has_summary_embedding,
+                'has_content_embedding': has_content_embedding,
+                'chunk_count': chunk_count,
+                'chunks_with_embeddings': chunks_with_embeddings,
+                'embedding_coverage': round((chunks_with_embeddings / chunk_count * 100) if chunk_count > 0 else 0, 1),
+                'embedding_credits_used': file.embedding_credits_used or 0,
+                'embedding_model': file.embedding_model
+            })
+        
+        # Calculate summary statistics
+        embedded_count = sum(1 for f in file_list if f['is_embedded'])
+        not_embedded_count = len(file_list) - embedded_count
+        total_chunks = sum(f['chunk_count'] for f in file_list)
+        total_embedded_chunks = sum(f['chunks_with_embeddings'] for f in file_list)
+        
+        return {
+            'success': True,
+            'business_id': business_id,
+            'total_files': len(file_list),
+            'embedded_files': embedded_count,
+            'not_embedded_files': not_embedded_count,
+            'embedding_percentage': round((embedded_count / len(file_list) * 100) if len(file_list) > 0 else 0, 1),
+            'total_chunks': total_chunks,
+            'total_embedded_chunks': total_embedded_chunks,
+            'files': file_list
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing files with embeddings: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list files")
+
+
 @router.get("/stats/{business_id}")
 async def get_embedding_stats(
     business_id: int,
