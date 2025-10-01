@@ -12,6 +12,17 @@ from config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    # Install pgvector extension before creating tables
+    try:
+        from sqlalchemy import text
+        with engine.connect() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            connection.commit()
+    except Exception as e:
+        # Extension may already exist or user doesn't have permissions
+        # If it fails, tables with vector columns will fail to create
+        print(f"Note: Could not install pgvector extension: {e}")
+    
     Base.metadata.create_all(bind=engine)
     yield
     # Shutdown
