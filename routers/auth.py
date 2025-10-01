@@ -144,6 +144,15 @@ async def reset_database(
         # Create all tables
         Base.metadata.create_all(bind=engine)
         
+        # Install pgvector extension for embeddings
+        from sqlalchemy import text
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                connection.commit()
+        except Exception as e:
+            logger.warning(f"pgvector installation warning: {e}")
+        
         # Create default admin user
         admin_user = models.User(
             email="admin@ryvr.com",
@@ -158,7 +167,7 @@ async def reset_database(
         db.commit()
         
         return {
-            "message": "Database reset successfully",
+            "message": "Database reset successfully (with pgvector extension)",
             "admin_credentials": {
                 "email": "admin@ryvr.com", 
                 "username": "admin",

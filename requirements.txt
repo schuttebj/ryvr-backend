@@ -20,4 +20,6 @@ python-dateutil==2.9.0
 PyPDF2==3.0.1
 python-docx==0.8.11
 python-magic==0.4.27
-aiofiles==23.1.0 
+aiofiles==23.1.0
+pgvector==0.3.6
+tiktoken==0.8.0 

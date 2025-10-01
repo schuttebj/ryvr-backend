@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, agencies, admin, simple_api, flows, files
+from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, agencies, admin, simple_api, flows, files, embeddings
 from config import settings
 
 # Create database tables
@@ -55,6 +55,9 @@ app.include_router(simple_api.router, tags=["simple"])
 
 # File management router
 app.include_router(files.router, tags=["files"])
+
+# Vector embeddings & semantic search router
+app.include_router(embeddings.router, tags=["embeddings"])
 
 @app.get("/")
 async def root():

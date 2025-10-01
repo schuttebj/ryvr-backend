@@ -102,6 +102,16 @@ async def reset_and_initialize_system(
         logger.info("Creating fresh database schema...")
         Base.metadata.create_all(bind=engine)
         
+        # Step 2.5: Install pgvector extension for embeddings
+        logger.info("Installing pgvector extension...")
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                connection.commit()
+                logger.info("✅ pgvector extension installed")
+        except Exception as e:
+            logger.warning(f"pgvector installation warning (may already exist): {e}")
+        
         # Step 3: Initialize with all data
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         db = SessionLocal()
@@ -463,14 +473,16 @@ async def reset_and_initialize_system(
                 "subscription_tiers": ["Starter ($29/mo)", "Professional ($99/mo)", "Enterprise ($299/mo)"],
                 "integrations": ["DataForSEO (sandbox ready)", "OpenAI (requires API key)", "System integrations table ready"],
                 "workflow_templates": ["Basic SEO Analysis (25 credits)", "AI Content Creation (15 credits)", "SEO Quick Check (5 credits)"],
-                "database": "Fresh schema with all tables including system_integrations"
+                "database": "Fresh schema with all tables including system_integrations",
+                "vector_embeddings": "pgvector extension installed - ready for semantic search"
             },
             "next_steps": [
                 "1. Login: POST /api/v1/auth/login",
                 "2. Configure system OpenAI integration: POST /api/v1/integrations/system", 
-                "3. Test file summarization: Upload file and generate summary",
-                "4. Configure other API keys: GET /api/v1/integrations",
-                "5. Test workflows: GET /api/v1/workflows/templates"
+                "3. Test file upload: POST /api/v1/files/upload with auto_embed=true",
+                "4. Test semantic search: POST /api/v1/embeddings/search",
+                "5. Configure other API keys: GET /api/v1/integrations",
+                "6. Test workflows: GET /api/v1/workflows/templates"
             ],
             "timestamp": datetime.utcnow()
         }

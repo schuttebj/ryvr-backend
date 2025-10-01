@@ -44,12 +44,18 @@ def get_account_info(current_user: models.User) -> tuple[int, str]:
 async def upload_account_file(
     file: UploadFile = File(...),
     auto_process: bool = Form(True),
+    auto_embed: bool = Form(False),  # NEW: Optional auto-embedding
     tags: Optional[str] = Form(None),  # JSON string of tags
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user),
     file_service: FileService = Depends(get_file_service)
 ):
-    """Upload file to account level"""
+    """
+    Upload file to account level
+    
+    - auto_process: Extract text and generate AI summary (default: True)
+    - auto_embed: Generate vector embeddings for semantic search (default: False)
+    """
     try:
         account_id, account_type = get_account_info(current_user)
         
@@ -77,6 +83,27 @@ async def upload_account_file(
         if file_tags:
             uploaded_file.tags = file_tags
             db.commit()
+        
+        # Optional: Generate embeddings automatically
+        if auto_embed and uploaded_file.content_text:
+            try:
+                from services.embedding_service import EmbeddingService
+                embedding_service = EmbeddingService(db)
+                
+                # Generate embeddings in background (don't block response)
+                import asyncio
+                asyncio.create_task(
+                    embedding_service.generate_file_embeddings(
+                        file_id=uploaded_file.id,
+                        business_id=None,
+                        account_id=account_id,
+                        account_type=account_type,
+                        force_regenerate=False
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Auto-embedding failed for file {uploaded_file.id}: {str(e)}")
+                # Don't fail the upload if embedding fails
         
         return schemas.FileUploadResponse(
             id=uploaded_file.id,

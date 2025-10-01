@@ -4,6 +4,7 @@ from sqlalchemy.sql import func
 from database import Base
 from decimal import Decimal
 import uuid
+from pgvector.sqlalchemy import Vector
 
 # =============================================================================
 # CORE USER MANAGEMENT MODELS
@@ -702,6 +703,13 @@ class File(Base):
     summary_credits_used = Column(Integer, default=0)  # OpenAI usage tracking
     processing_status = Column(String(20), default='pending')  # pending, processing, completed, failed
     
+    # Vector embeddings for semantic search
+    content_embedding = Column(Vector(1536), nullable=True)  # Full content embedding
+    summary_embedding = Column(Vector(1536), nullable=True)  # Summary embedding for fast search
+    embedding_model = Column(String(100), nullable=True)  # Track embedding model used
+    embedding_credits_used = Column(Integer, default=0)  # Embedding generation cost
+    embedding_status = Column(String(20), default='pending')  # pending, processing, completed, failed, skipped
+    
     # Metadata and organization
     tags = Column(JSON, default=list)  # User-added tags
     file_metadata = Column(JSON, default=dict)  # File metadata (mime type, etc.)
@@ -766,6 +774,39 @@ class FilePermission(Base):
     __table_args__ = (
         UniqueConstraint('file_id', 'business_id', name='unique_file_business_permission'),
         CheckConstraint("permission_type IN ('read', 'write')", name='check_permission_type'),
+    )
+
+class DocumentChunk(Base):
+    """
+    Document chunks for large files with vector embeddings
+    Enables semantic search on chunked content with auto-cleanup on file deletion
+    """
+    __tablename__ = "document_chunks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
+    
+    # Chunk information
+    chunk_index = Column(Integer, nullable=False)  # Position in document (0-indexed)
+    chunk_text = Column(Text, nullable=False)  # Text content of chunk
+    chunk_embedding = Column(Vector(1536), nullable=True)  # Vector embedding
+    
+    # Metadata
+    chunk_metadata = Column(JSON, default=dict)  # page_number, section_title, token_count, etc.
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    file = relationship("File", backref="chunks")
+    business = relationship("Business")
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_chunks_file', 'file_id'),
+        Index('idx_chunks_business', 'business_id'),
+        Index('idx_chunks_file_index', 'file_id', 'chunk_index'),
     )
 
 # =============================================================================

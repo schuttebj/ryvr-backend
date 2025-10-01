@@ -860,3 +860,72 @@ class FilePermission(BaseModel):
     
     class Config:
         from_attributes = True
+
+# =============================================================================
+# VECTOR EMBEDDINGS & SEMANTIC SEARCH SCHEMAS
+# =============================================================================
+
+class EmbeddingGenerateRequest(BaseModel):
+    """Request to generate embeddings for a file"""
+    force_regenerate: bool = False
+
+class EmbeddingGenerateResponse(BaseModel):
+    """Response from embedding generation"""
+    success: bool
+    file_id: int
+    message: Optional[str] = None
+    summary_embedded: bool = False
+    content_embedded: bool = False
+    chunks_created: int = 0
+    total_tokens_used: int = 0
+    credits_used: int = 0
+
+class SemanticSearchRequest(BaseModel):
+    """Request for semantic search across files"""
+    query: str
+    business_id: int
+    top_k: int = 5
+    similarity_threshold: float = 0.7
+    file_types: Optional[List[str]] = None
+    search_content: bool = False  # If True, search full content; False = summaries (faster)
+
+class SemanticSearchResult(BaseModel):
+    """Single search result"""
+    file_id: int
+    filename: str
+    file_type: str
+    file_size: int
+    summary: Optional[str]
+    created_at: Optional[str]
+    similarity: float
+
+class SemanticSearchResponse(BaseModel):
+    """Response from semantic search"""
+    success: bool
+    query: str
+    results: List[SemanticSearchResult]
+    count: int
+
+class WorkflowContextRequest(BaseModel):
+    """Request for workflow context injection"""
+    query: str
+    business_id: int
+    max_tokens: int = 4000
+    top_k: int = 10
+    similarity_threshold: float = 0.7
+    include_sources: bool = True
+
+class ContextSource(BaseModel):
+    """Source file for context"""
+    file_id: int
+    filename: str
+    similarity: float
+
+class WorkflowContextResponse(BaseModel):
+    """Response with context for workflow"""
+    success: bool
+    context: str
+    token_count: int
+    sources: List[ContextSource]
+    query: str
+    results_used: int
