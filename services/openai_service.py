@@ -395,52 +395,21 @@ Return the results in JSON format with each email including:
         return results
     
     def get_available_models(self) -> List[Dict[str, Any]]:
-        """Fetch available models from OpenAI API"""
+        """Get available models from database instead of API"""
+        from services.openai_model_service import OpenAIModelService
         try:
-            if not self.client or not self.api_key:
-                logger.warning("OpenAI client not properly configured, returning fallback models")
-                return [
-                    {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
-                    {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
-                    {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
-                    {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
-                ]
-            
-            logger.info("🚀 Attempting to fetch models from OpenAI API: https://api.openai.com/v1/models")
-            models = self.client.models.list()
-            logger.info(f"✅ Successfully fetched {len(models.data)} models from OpenAI API")
-            
-            # Filter for chat completion models and sort by creation date
-            chat_models = []
-            for model in models.data:
-                # Filter for GPT models that support chat completions
-                if any(gpt_prefix in model.id.lower() for gpt_prefix in ['gpt-3.5', 'gpt-4']):
-                    chat_models.append({
-                        "id": model.id,
-                        "created": model.created,
-                        "owned_by": model.owned_by
-                    })
-            
-            # Sort by creation date (newest first)
-            chat_models.sort(key=lambda x: x['created'], reverse=True)
-            
-            # If no models found, return fallback
-            if not chat_models:
-                logger.warning("No compatible models found from OpenAI API, returning fallback models")
-                return [
-                    {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
-                    {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
-                    {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
-                    {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
-                ]
-            
-            logger.info(f"🎯 Returning {len(chat_models)} LIVE models from OpenAI API: {[m['id'] for m in chat_models[:3]]}")
-            return chat_models
+            # This should be called with a database session
+            # For now, return fallback models - this method should be deprecated
+            logger.warning("get_available_models called without database session, returning fallback models")
+            return [
+                {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
+                {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
+                {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
+                {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
+            ]
             
         except Exception as e:
-            logger.error(f"❌ Failed to fetch models from OpenAI API: {e}")
-            logger.warning("🔄 Returning STATIC fallback models instead of live OpenAI models")
-            # Always return fallback models if API fails
+            logger.error(f"Failed to get available models: {e}")
             return [
                 {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
                 {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},

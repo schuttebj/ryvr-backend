@@ -397,25 +397,115 @@ async def fetch_models_with_api_key(
 
 @router.get("/models/available", response_model=List[Dict[str, Any]])
 async def get_available_models(
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Get list of available OpenAI models (fallback - returns static models)"""
+    """Get list of available OpenAI models from database"""
+    from services.openai_model_service import OpenAIModelService
     try:
-        # Return static fallback models since we want integration-specific fetching
-        logger.info("Returning static fallback models - use /models/fetch-with-key for live models")
-        return [
-            {"id": "gpt-4o", "created": 0, "owned_by": "openai"},
-            {"id": "gpt-4o-mini", "created": 0, "owned_by": "openai"},
-            {"id": "gpt-4-turbo", "created": 0, "owned_by": "openai"},
-            {"id": "gpt-3.5-turbo", "created": 0, "owned_by": "openai"}
-        ]
+        model_service = OpenAIModelService(db)
+        
+        # Ensure fallback models exist
+        await model_service.ensure_fallback_models()
+        
+        # Get models for dropdown
+        models = await model_service.get_models_for_dropdown()
+        
+        if not models:
+            logger.warning("No models found in database, returning fallback")
+            return [
+                {"id": "gpt-4o", "name": "GPT-4o", "is_default": False},
+                {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "is_default": True},
+                {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "is_default": False},
+                {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo", "is_default": False}
+            ]
+        
+        return models
+        
     except Exception as e:
         logger.error(f"Failed to fetch models: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch available models")
 
+@router.post("/models/refresh", response_model=Dict[str, Any])
+async def refresh_models(
+    api_key: Optional[str] = Body(None, description="OpenAI API key (optional, uses system key if not provided)"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Refresh OpenAI models from API (admin only)"""
+    from services.openai_model_service import OpenAIModelService
+    try:
+        model_service = OpenAIModelService(db)
+        result = await model_service.refresh_models_from_api(api_key)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to refresh models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh models: {str(e)}")
+
+@router.put("/models/{model_id}/set-default", response_model=Dict[str, Any])
+async def set_default_model(
+    model_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Set a model as the system default (admin only)"""
+    from services.openai_model_service import OpenAIModelService
+    try:
+        model_service = OpenAIModelService(db)
+        success = await model_service.set_default_model(model_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Model not found")
+        
+        return {
+            "success": True,
+            "message": f"Set {model_id} as default model",
+            "default_model": model_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set default model: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set default model: {str(e)}")
+
+@router.get("/models/default", response_model=Dict[str, Any])
+async def get_default_model(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get the current system default model"""
+    from services.openai_model_service import OpenAIModelService
+    try:
+        model_service = OpenAIModelService(db)
+        default_model = await model_service.get_default_model()
+        
+        if not default_model:
+            # Ensure fallback models and try again
+            await model_service.ensure_fallback_models()
+            default_model = await model_service.get_default_model()
+        
+        if not default_model:
+            return {"model_id": "gpt-4o-mini", "name": "GPT-4o Mini"}
+        
+        return {
+            "model_id": default_model.model_id,
+            "name": default_model.display_name or default_model.model_id,
+            "description": default_model.description,
+            "cost_per_1k_tokens": default_model.cost_per_1k_tokens,
+            "max_tokens": default_model.max_tokens
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get default model: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get default model")
+
 @router.get("/models/recommended", response_model=Dict[str, Any])
 async def get_recommended_model(
     task_type: str = Query("general", description="Task type: general, complex, fast, creative"),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
     """Get recommended model for a specific task type"""

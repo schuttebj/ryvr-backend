@@ -1130,6 +1130,33 @@ def create_sample_workflow_templates():
         print(f"❌ Failed to create workflow templates: {e}")
         return False
 
+def initialize_openai_models():
+    """Initialize default OpenAI models in database"""
+    try:
+        from services.openai_model_service import OpenAIModelService
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
+        
+        # Check if models already exist
+        existing_models = db.query(models.OpenAIModel).count()
+        if existing_models > 0:
+            print("✅ OpenAI models already exist")
+            db.close()
+            return True
+        
+        # Initialize model service and ensure fallback models
+        model_service = OpenAIModelService(db)
+        import asyncio
+        asyncio.run(model_service.ensure_fallback_models())
+        
+        print("✅ Default OpenAI models initialized")
+        db.close()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize OpenAI models: {e}")
+        return False
+
 def main():
     """Main initialization function"""
     print("🚀 Initializing RYVR Multi-Tenant Platform...")

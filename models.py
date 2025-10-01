@@ -609,6 +609,29 @@ class SystemIntegration(Base):
         UniqueConstraint('integration_id', name='unique_system_integration'),
     )
 
+class OpenAIModel(Base):
+    """Stored OpenAI models with system default selection"""
+    __tablename__ = "openai_models"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    model_id = Column(String(100), unique=True, nullable=False)  # e.g., "gpt-4o-mini"
+    created = Column(Integer, nullable=False)  # OpenAI creation timestamp
+    owned_by = Column(String(100), nullable=False)  # e.g., "openai"
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)  # System default model
+    display_name = Column(String(200), nullable=True)  # User-friendly name
+    description = Column(Text, nullable=True)  # Model description
+    cost_per_1k_tokens = Column(Float, nullable=True)  # Cost information for planning
+    max_tokens = Column(Integer, nullable=True)  # Maximum context window
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_refreshed = Column(DateTime(timezone=True), nullable=True)  # When models were last fetched
+    
+    __table_args__ = (
+        Index('idx_openai_models_active', 'is_active'),
+        Index('idx_openai_models_default', 'is_default'),
+    )
+
 class AgencyIntegration(Base):
     """Agency-level integration configurations"""
     __tablename__ = "agency_integrations"
