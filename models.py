@@ -66,12 +66,9 @@ class Agency(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
-    # Relationships
+    # Relationships (Agency model deprecated in simplified structure)
     users = relationship("AgencyUser", back_populates="agency")
-    businesses = relationship("Business", back_populates="agency")
     integrations = relationship("AgencyIntegration", back_populates="agency")
-    credit_pool = relationship("CreditPool", foreign_keys="CreditPool.owner_id", 
-                             primaryjoin="and_(Agency.id==CreditPool.owner_id, CreditPool.owner_type=='agency')")
 
 class AgencyUser(Base):
     """Many-to-many relationship between agencies and users"""
