@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, agencies, admin, simple_api, flows, files, embeddings
+from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, admin, simple_api, flows, files, embeddings
 from config import settings
 
 # Create database tables
@@ -56,7 +56,7 @@ app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(data_processing.router, prefix="/api/v1/data", tags=["data_processing"])
 
 # New multi-tenant routers
-app.include_router(agencies.router, tags=["agencies"])
+# app.include_router(agencies.router, tags=["agencies"])  # Removed in simplified structure
 app.include_router(businesses.router, tags=["businesses"])
 app.include_router(admin.router, tags=["admin"])
 app.include_router(flows.router, prefix="/api/v1", tags=["flows"])

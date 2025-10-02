@@ -308,21 +308,6 @@ class ClientAccess(ClientAccessBase):
         from_attributes = True
 
 # =============================================================================
-# USER CONTEXT SCHEMA FOR FRONTEND
-# =============================================================================
-
-class UserContext(BaseModel):
-    """Complete user context for frontend"""
-    user: User
-    subscription_tier: Optional[SubscriptionTier] = None
-    businesses: List[Business] = []
-    current_business_id: Optional[int] = None
-    seat_users: List[User] = []  # Only for master accounts
-
-    class Config:
-        from_attributes = True
-
-# =============================================================================
 # BUSINESS SWITCH SCHEMAS
 # =============================================================================
 
@@ -386,6 +371,21 @@ class SubscriptionTier(SubscriptionTierBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# USER CONTEXT SCHEMA FOR FRONTEND
+# =============================================================================
+
+class UserContext(BaseModel):
+    """Complete user context for frontend"""
+    user: User
+    subscription_tier: Optional[SubscriptionTier] = None
+    businesses: List[Business] = []
+    current_business_id: Optional[int] = None
+    seat_users: List[User] = []  # Only for master accounts
+
     class Config:
         from_attributes = True
 
