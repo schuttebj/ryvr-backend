@@ -140,20 +140,32 @@ async def reset_and_initialize_system(
             {
                 "name": "Starter", "slug": "starter", 
                 "price_monthly": Decimal("29.00"), "price_yearly": Decimal("290.00"),
-                "credits_included": 5000, "client_limit": 3, "user_limit": 5,
-                "features": ["Basic workflows", "Standard integrations", "Email support"]
+                "credits_included": 5000, "business_limit": 1, "seat_limit": 1,
+                "storage_limit_gb": 5, "max_file_size_mb": 50,
+                "features": ["Basic workflows", "Standard integrations", "Email support"],
+                "cross_business_chat": False, "cross_business_files": False,
+                "client_access_enabled": False, "workflow_access": ["basic"],
+                "integration_access": ["google", "facebook", "email"]
             },
             {
                 "name": "Professional", "slug": "professional",
                 "price_monthly": Decimal("99.00"), "price_yearly": Decimal("990.00"), 
-                "credits_included": 20000, "client_limit": 10, "user_limit": 15,
-                "features": ["Advanced workflows", "All integrations", "Priority support", "White-labeling"]
+                "credits_included": 20000, "business_limit": 5, "seat_limit": 2,
+                "storage_limit_gb": 25, "max_file_size_mb": 100,
+                "features": ["Advanced workflows", "All integrations", "Priority support", "Cross-business features"],
+                "cross_business_chat": True, "cross_business_files": True,
+                "client_access_enabled": False, "workflow_access": ["basic", "advanced"],
+                "integration_access": ["google", "facebook", "email", "linkedin", "twitter", "hubspot"]
             },
             {
                 "name": "Enterprise", "slug": "enterprise",
                 "price_monthly": Decimal("299.00"), "price_yearly": Decimal("2990.00"),
-                "credits_included": 100000, "client_limit": -1, "user_limit": -1,
-                "features": ["Custom workflows", "Dedicated support", "Custom integrations", "SLA"]
+                "credits_included": 100000, "business_limit": 20, "seat_limit": 10,
+                "storage_limit_gb": 100, "max_file_size_mb": 500,
+                "features": ["Custom workflows", "Dedicated support", "Custom integrations", "Client access", "White-labeling"],
+                "cross_business_chat": True, "cross_business_files": True,
+                "client_access_enabled": True, "workflow_access": ["basic", "advanced", "enterprise"],
+                "integration_access": ["all"]
             }
         ]
         

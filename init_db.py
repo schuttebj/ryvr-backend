@@ -63,8 +63,8 @@ def create_default_subscription_tiers():
                 'price_monthly': Decimal('49.00'),
                 'price_yearly': Decimal('490.00'),
                 'credits_included': 5000,
-                'client_limit': 5,
-                'user_limit': 2,
+                'business_limit': 1,  # Updated for simplified structure
+                'seat_limit': 1,
                 'features': ['basic_workflows', 'email_support', 'basic_analytics'],
                 'workflow_access': ['seo_basic', 'content_basic'],
                 'integration_limits': {'dataforseo': 1000, 'openai': 500},
@@ -77,8 +77,8 @@ def create_default_subscription_tiers():
                 'price_monthly': Decimal('149.00'),
                 'price_yearly': Decimal('1490.00'),
                 'credits_included': 20000,
-                'client_limit': 25,
-                'user_limit': 5,
+                'business_limit': 5,  # Updated for simplified structure
+                'seat_limit': 2,
                 'features': ['advanced_workflows', 'priority_support', 'advanced_analytics', 'white_label'],
                 'workflow_access': ['seo_basic', 'seo_advanced', 'content_basic', 'content_advanced', 'ppc_basic'],
                 'integration_limits': {'dataforseo': 5000, 'openai': 2000},
@@ -91,8 +91,8 @@ def create_default_subscription_tiers():
                 'price_monthly': Decimal('499.00'),
                 'price_yearly': Decimal('4990.00'),
                 'credits_included': 100000,
-                'client_limit': 100,
-                'user_limit': 25,
+                'business_limit': 10,  # Updated for simplified structure
+                'seat_limit': 5,
                 'features': ['all_workflows', 'dedicated_support', 'custom_analytics', 'white_label', 'custom_domain', 'api_access'],
                 'workflow_access': ['all'],
                 'integration_limits': {'dataforseo': 25000, 'openai': 10000},
