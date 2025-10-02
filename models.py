@@ -11,34 +11,41 @@ from pgvector.sqlalchemy import Vector
 # =============================================================================
 
 class User(Base):
-    """Enhanced user model with role-based authentication"""
+    """Simplified user model with admin/user roles only"""
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     username = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False)  # admin, agency, individual
+    role = Column(String(20), nullable=False, default='user')  # admin, user
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
     phone = Column(String(20), nullable=True)
     avatar_url = Column(String(500), nullable=True)
     email_verified = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    
+    # New fields for simplified structure
+    master_account_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # For seat management
+    is_master_account = Column(Boolean, default=True)  # True for main accounts, False for seats
+    seat_name = Column(String(100), nullable=True)  # Display name for seat users
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    agency_memberships = relationship("AgencyUser", back_populates="user", foreign_keys="AgencyUser.user_id")
-    business_memberships = relationship("BusinessUser", back_populates="user", foreign_keys="BusinessUser.user_id")
-    created_agencies = relationship("Agency", foreign_keys="Agency.created_by")
     subscription = relationship("UserSubscription", back_populates="user", uselist=False)
+    owned_businesses = relationship("Business", foreign_keys="Business.owner_id", back_populates="owner")
+    business_memberships = relationship("BusinessUser", back_populates="user")
+    credit_pool = relationship("CreditPool", foreign_keys="CreditPool.owner_id", uselist=False)
     
-    # Invitations sent by this user
-    agency_invitations = relationship("AgencyUser", foreign_keys="AgencyUser.invited_by", overlaps="inviter")
+    # Seat management relationships
+    master_account = relationship("User", remote_side=[id], back_populates="seat_users")
+    seat_users = relationship("User", back_populates="master_account")
     
     __table_args__ = (
-        CheckConstraint("role IN ('admin', 'agency', 'individual')", name='check_user_role'),
+        CheckConstraint("role IN ('admin', 'user')", name='check_user_role'),
     )
 
 class Agency(Base):
@@ -92,19 +99,19 @@ class AgencyUser(Base):
     )
 
 class Business(Base):
-    """Business model (replaces Client) with multi-tenancy support"""
+    """Business model with direct user ownership"""
     __tablename__ = "businesses"
     
     id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Direct user ownership
     name = Column(String(200), nullable=False)
-    slug = Column(String(100), nullable=True)  # for URLs
+    slug = Column(String(100), nullable=True)
     industry = Column(String(100), nullable=True)
     website = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
-    onboarding_data = Column(JSON, default=dict)  # questionnaire responses
+    onboarding_data = Column(JSON, default=dict)
     settings = Column(JSON, default=dict)
-    branding_config = Column(JSON, default=dict)  # inherited from agency + overrides
+    branding_config = Column(JSON, default=dict)
     contact_email = Column(String(255), nullable=True)
     contact_phone = Column(String(20), nullable=True)
     contact_address = Column(Text, nullable=True)
@@ -113,14 +120,15 @@ class Business(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    agency = relationship("Agency", back_populates="businesses")
+    owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_businesses")
     users = relationship("BusinessUser", back_populates="business")
     workflow_instances = relationship("WorkflowInstance", back_populates="business")
     integrations = relationship("BusinessIntegration", back_populates="business")
     credit_transactions = relationship("CreditTransaction", back_populates="business")
+    client_access = relationship("ClientAccess", back_populates="business")
     
     __table_args__ = (
-        UniqueConstraint('agency_id', 'slug', name='unique_agency_business_slug'),
+        UniqueConstraint('owner_id', 'slug', name='unique_owner_business_slug'),
     )
 
 class BusinessUser(Base):
@@ -244,7 +252,7 @@ class AssetUpload(Base):
 # =============================================================================
 
 class SubscriptionTier(Base):
-    """Configurable subscription tiers"""
+    """Enhanced subscription tiers with new limits"""
     __tablename__ = "subscription_tiers"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -253,14 +261,23 @@ class SubscriptionTier(Base):
     description = Column(Text, nullable=True)
     price_monthly = Column(Numeric(10, 2), nullable=False)
     price_yearly = Column(Numeric(10, 2), nullable=True)
+    
+    # Core limits
     credits_included = Column(Integer, nullable=False)
-    client_limit = Column(Integer, nullable=False)  # max businesses
-    user_limit = Column(Integer, nullable=False)  # max agency users
-    features = Column(JSON, default=list)  # array of feature flags
-    workflow_access = Column(JSON, default=list)  # accessible workflow categories
-    integration_limits = Column(JSON, default=dict)  # per-integration limits
-    storage_limit_gb = Column(Integer, default=5)  # Storage limit in GB
-    max_file_size_mb = Column(Integer, default=100)  # Max file size in MB
+    business_limit = Column(Integer, nullable=False)  # Max businesses per account
+    seat_limit = Column(Integer, nullable=False)  # Max additional seats
+    storage_limit_gb = Column(Integer, default=5)
+    max_file_size_mb = Column(Integer, default=100)
+    
+    # Feature flags
+    features = Column(JSON, default=list)  # List of enabled features
+    cross_business_chat = Column(Boolean, default=False)  # Can chat across all businesses
+    cross_business_files = Column(Boolean, default=False)  # Can access all business files
+    client_access_enabled = Column(Boolean, default=False)  # Can provide client access
+    workflow_access = Column(JSON, default=list)  # Accessible workflow categories
+    integration_access = Column(JSON, default=list)  # Enabled integrations
+    
+    # Display and ordering
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -295,26 +312,46 @@ class UserSubscription(Base):
     )
 
 class CreditPool(Base):
-    """Credit pools for agencies and individuals"""
+    """Simplified credit pools for users"""
     __tablename__ = "credit_pools"
     
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, nullable=False)  # user_id for individuals, agency_id for agencies
-    owner_type = Column(String(20), nullable=False)  # user, agency
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     balance = Column(Integer, nullable=False, default=0)
     total_purchased = Column(Integer, nullable=False, default=0)
     total_used = Column(Integer, nullable=False, default=0)
+    monthly_allowance = Column(Integer, default=0)
+    last_reset_date = Column(DateTime(timezone=True), nullable=True)
     overage_threshold = Column(Integer, default=100)  # negative balance allowed
     is_suspended = Column(Boolean, default=False)  # suspended when over threshold
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
+    owner = relationship("User", foreign_keys="CreditPool.owner_id", back_populates="credit_pool")
     transactions = relationship("CreditTransaction", back_populates="pool")
+
+class ClientAccess(Base):
+    """Client access management for tier 3/4 users"""
+    __tablename__ = "client_access"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
+    client_email = Column(String(255), nullable=False)
+    access_type = Column(String(20), nullable=False, default='viewer')  # viewer, approver
+    permissions = Column(JSON, default=list)  # List of allowed permissions
+    access_token = Column(String(255), nullable=True)  # For client login
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    business = relationship("Business", back_populates="client_access")
     
     __table_args__ = (
-        UniqueConstraint('owner_id', 'owner_type', name='unique_credit_pool'),
-        CheckConstraint("owner_type IN ('user', 'agency')", name='check_credit_owner_type'),
+        UniqueConstraint('business_id', 'client_email', name='unique_business_client'),
+        CheckConstraint("access_type IN ('viewer', 'approver')", name='check_client_access_type'),
     )
 
 class CreditTransaction(Base):

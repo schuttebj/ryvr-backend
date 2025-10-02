@@ -30,10 +30,8 @@ def get_embedding_service(db: Session = Depends(get_db)) -> EmbeddingService:
 
 def get_account_info(current_user: models.User) -> tuple[int, str]:
     """Get account ID and type from current user"""
-    if current_user.role == 'agency':
-        return current_user.id, 'agency'
-    else:
-        return current_user.id, 'user'
+    # Simplified to always use user account
+    return current_user.id, 'user'
 
 
 # =============================================================================
@@ -496,7 +494,42 @@ async def chat_with_documents(
     embedding_service: EmbeddingService = Depends(get_embedding_service)
 ):
     """
-    RAG (Retrieval Augmented Generation) Chat
+    RAG (Retrieval Augmented Generation) Chat - Single Business
+    
+    Ask questions and get AI answers based on documents from a specific business
+    """
+    # Ensure business_id is provided for single business chat
+    if not request.business_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="business_id is required for single business chat. Use /chat-all for cross-business chat."
+        )
+    
+    return await _chat_implementation(request, db, current_user, embedding_service, cross_business=False)
+
+@router.post("/chat-all", response_model=schemas.ChatResponse)
+async def chat_with_all_documents(
+    request: schemas.ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user),
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    RAG (Retrieval Augmented Generation) Chat - Cross-Business
+    
+    Ask questions and get AI answers based on documents from all accessible businesses
+    """
+    return await _chat_implementation(request, db, current_user, embedding_service, cross_business=True)
+
+async def _chat_implementation(
+    request: schemas.ChatRequest,
+    db: Session,
+    current_user: models.User,
+    embedding_service: EmbeddingService,
+    cross_business: bool = False
+):
+    """
+    RAG (Retrieval Augmented Generation) Chat Implementation
     
     Ask questions and get AI answers based on your uploaded documents
     
@@ -511,30 +544,83 @@ async def chat_with_documents(
     - Finding specific information quickly
     """
     try:
-        # Validate business access
-        business_user = db.query(models.BusinessUser).filter(
-            models.BusinessUser.business_id == request.business_id,
-            models.BusinessUser.user_id == current_user.id,
-            models.BusinessUser.is_active == True
-        ).first()
-        
-        if not business_user and current_user.role != 'admin':
-            raise HTTPException(status_code=403, detail="Access denied to this business")
+        # Validate access based on chat type
+        if cross_business:
+            # Cross-business chat - check if user has this feature
+            if current_user.role != 'admin':
+                subscription = current_user.subscription
+                if not subscription or not subscription.tier.cross_business_chat:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Cross-business chat not available in your subscription tier"
+                    )
+        else:
+            # Single business chat - validate business access
+            if not request.business_id:
+                raise HTTPException(status_code=400, detail="business_id is required")
+                
+            business = db.query(models.Business).filter_by(id=request.business_id).first()
+            if not business:
+                raise HTTPException(status_code=404, detail="Business not found")
+            
+            # Check ownership or membership
+            is_owner = business.owner_id == current_user.id
+            is_member = db.query(models.BusinessUser).filter_by(
+                business_id=request.business_id, user_id=current_user.id
+            ).first() is not None
+            
+            if not (is_owner or is_member) and current_user.role != 'admin':
+                raise HTTPException(status_code=403, detail="Access denied to this business")
         
         account_id, account_type = get_account_info(current_user)
         
         # Step 1: Get relevant context from documents
         logger.info(f"Searching documents for query: {request.message}")
-        context_result = await embedding_service.get_context_for_workflow(
-            query=request.message,
-            business_id=request.business_id,
-            account_id=account_id,
-            account_type=account_type,
-            max_tokens=request.max_context_tokens,
-            top_k=request.top_k,
-            similarity_threshold=request.similarity_threshold,
-            include_sources=True
-        )
+        
+        if cross_business:
+            # For cross-business chat, search across all user's businesses
+            user_businesses = []
+            if current_user.role == 'admin':
+                # Admins can access all businesses
+                user_businesses = db.query(models.Business).all()
+            else:
+                # Get user's owned and member businesses
+                owned_businesses = db.query(models.Business).filter_by(owner_id=current_user.id).all()
+                member_businesses = db.query(models.Business).join(models.BusinessUser).filter(
+                    models.BusinessUser.user_id == current_user.id
+                ).all()
+                
+                # Combine and deduplicate
+                business_ids = set()
+                for business in owned_businesses + member_businesses:
+                    if business.id not in business_ids:
+                        user_businesses.append(business)
+                        business_ids.add(business.id)
+            
+            # Search across all businesses (we'll need to modify the service for this)
+            context_result = await embedding_service.get_context_for_workflow(
+                query=request.message,
+                business_id=None,  # None indicates cross-business search
+                account_id=account_id,
+                account_type=account_type,
+                max_tokens=request.max_context_tokens,
+                top_k=request.top_k,
+                similarity_threshold=request.similarity_threshold,
+                include_sources=True,
+                business_ids=[b.id for b in user_businesses]  # Pass list of accessible business IDs
+            )
+        else:
+            # Single business search
+            context_result = await embedding_service.get_context_for_workflow(
+                query=request.message,
+                business_id=request.business_id,
+                account_id=account_id,
+                account_type=account_type,
+                max_tokens=request.max_context_tokens,
+                top_k=request.top_k,
+                similarity_threshold=request.similarity_threshold,
+                include_sources=True
+            )
         
         context_found = bool(context_result.get('context', '').strip())
         

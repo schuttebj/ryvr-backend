@@ -29,7 +29,7 @@ async def login_for_access_token(
     form_data: schemas.LoginRequest,
     db: Session = Depends(get_db)
 ):
-    """Enhanced login endpoint with user context."""
+    """Simplified login endpoint for user/admin roles."""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -38,23 +38,101 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Get user's agencies and businesses
-    agencies = get_user_agencies(db, user)
-    businesses = get_user_businesses(db, user)
+    # Get user's businesses if they are a user
+    businesses = []
+    business_id = None
+    if user.role == 'user':
+        businesses = get_user_businesses(db, user)
+        business_id = businesses[0].id if businesses else None
     
-    # Default context selection
-    agency_id = agencies[0].id if agencies else None
-    business_id = businesses[0].id if businesses else None
-    
-    # Create token with context
-    access_token = create_login_token(user, agency_id, business_id)
+    # Create token with business context
+    access_token = create_login_token(user, business_id)
     
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user": user,
-        "agency_id": agency_id,
-        "business_id": business_id
+        "businesses": businesses,
+        "current_business_id": business_id
+    }
+
+@router.get("/me", response_model=schemas.UserContext)
+async def get_user_context(
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get complete user context including subscription, businesses, and seats."""
+    # Get subscription tier
+    subscription_tier = None
+    if current_user.subscription:
+        subscription_tier = current_user.subscription.tier
+    
+    # Get businesses based on role
+    businesses = []
+    if current_user.role == 'user':
+        # Users see their owned businesses + businesses they have access to
+        owned_businesses = db.query(models.Business).filter_by(owner_id=current_user.id).all()
+        member_businesses = db.query(models.Business).join(models.BusinessUser).filter(
+            models.BusinessUser.user_id == current_user.id
+        ).all()
+        
+        # Combine and deduplicate
+        business_ids = set()
+        for business in owned_businesses + member_businesses:
+            if business.id not in business_ids:
+                businesses.append(business)
+                business_ids.add(business.id)
+    elif current_user.role == 'admin':
+        # Admins can see all businesses
+        businesses = db.query(models.Business).all()
+    
+    # Get seat users (only for master accounts)
+    seat_users = []
+    if current_user.is_master_account:
+        seat_users = db.query(models.User).filter_by(master_account_id=current_user.id).all()
+    
+    return {
+        "user": current_user,
+        "subscription_tier": subscription_tier,
+        "businesses": businesses,
+        "current_business_id": None,  # Will be set by JWT token
+        "seat_users": seat_users
+    }
+
+@router.post("/switch-business", response_model=schemas.BusinessSwitchResponse)
+async def switch_business_context(
+    request: schemas.BusinessSwitchRequest,
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Switch business context for the user."""
+    business_id = request.business_id
+    
+    # Verify access to the business if specified
+    if business_id:
+        if current_user.role == 'user':
+            # Check if user owns or has access to this business
+            business = db.query(models.Business).filter_by(id=business_id).first()
+            if not business:
+                raise HTTPException(status_code=404, detail="Business not found")
+            
+            # Check ownership or membership
+            is_owner = business.owner_id == current_user.id
+            is_member = db.query(models.BusinessUser).filter_by(
+                business_id=business_id, user_id=current_user.id
+            ).first() is not None
+            
+            if not (is_owner or is_member):
+                raise HTTPException(status_code=403, detail="Access denied to this business")
+        # Admins can access any business
+    
+    # Create new token with updated business context
+    access_token = create_login_token(current_user, business_id)
+    
+    return {
+        "access_token": access_token,
+        "current_business_id": business_id,
+        "message": "Business context switched successfully"
     }
 
 @router.post("/register", response_model=schemas.User)

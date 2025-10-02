@@ -10,12 +10,15 @@ from decimal import Decimal
 class UserBase(BaseModel):
     email: EmailStr
     username: str
-    role: Literal['admin', 'agency', 'individual']
+    role: Literal['admin', 'user']  # Simplified roles
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
     is_active: bool = True
+    is_master_account: bool = True
+    master_account_id: Optional[int] = None
+    seat_name: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -275,6 +278,63 @@ class OnboardingResponse(OnboardingResponseBase):
         from_attributes = True
 
 # =============================================================================
+# CLIENT ACCESS SCHEMAS
+# =============================================================================
+
+class ClientAccessBase(BaseModel):
+    business_id: int
+    client_email: EmailStr
+    access_type: Literal['viewer', 'approver'] = 'viewer'
+    permissions: List[str] = []
+    is_active: bool = True
+    expires_at: Optional[datetime] = None
+
+class ClientAccessCreate(ClientAccessBase):
+    pass
+
+class ClientAccessUpdate(BaseModel):
+    access_type: Optional[Literal['viewer', 'approver']] = None
+    permissions: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+    expires_at: Optional[datetime] = None
+
+class ClientAccess(ClientAccessBase):
+    id: int
+    access_token: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# USER CONTEXT SCHEMA FOR FRONTEND
+# =============================================================================
+
+class UserContext(BaseModel):
+    """Complete user context for frontend"""
+    user: User
+    subscription_tier: Optional[SubscriptionTier] = None
+    businesses: List[Business] = []
+    current_business_id: Optional[int] = None
+    seat_users: List[User] = []  # Only for master accounts
+
+    class Config:
+        from_attributes = True
+
+# =============================================================================
+# BUSINESS SWITCH SCHEMAS
+# =============================================================================
+
+class BusinessSwitchRequest(BaseModel):
+    business_id: Optional[int] = None  # None for "all businesses" context
+
+class BusinessSwitchResponse(BaseModel):
+    access_token: str
+    current_business_id: Optional[int] = None
+    message: str = "Business context switched successfully"
+
+# =============================================================================
 # SUBSCRIPTION & CREDIT SCHEMAS
 # =============================================================================
 
@@ -285,11 +345,17 @@ class SubscriptionTierBase(BaseModel):
     price_monthly: Decimal
     price_yearly: Optional[Decimal] = None
     credits_included: int
-    client_limit: int
-    user_limit: int
+    business_limit: int  # Renamed from client_limit
+    seat_limit: int  # Renamed from user_limit
+    storage_limit_gb: int = 5
+    max_file_size_mb: int = 100
     features: Optional[List[str]] = []
+    cross_business_chat: bool = False
+    cross_business_files: bool = False
+    client_access_enabled: bool = False
     workflow_access: Optional[List[str]] = []
-    integration_limits: Optional[Dict[str, Any]] = {}
+    integration_access: Optional[List[str]] = []  # Simplified from integration_limits
+    is_active: bool = True
     sort_order: int = 0
 
 class SubscriptionTierCreate(SubscriptionTierBase):
@@ -301,11 +367,16 @@ class SubscriptionTierUpdate(BaseModel):
     price_monthly: Optional[Decimal] = None
     price_yearly: Optional[Decimal] = None
     credits_included: Optional[int] = None
-    client_limit: Optional[int] = None
-    user_limit: Optional[int] = None
+    business_limit: Optional[int] = None
+    seat_limit: Optional[int] = None
+    storage_limit_gb: Optional[int] = None
+    max_file_size_mb: Optional[int] = None
     features: Optional[List[str]] = None
+    cross_business_chat: Optional[bool] = None
+    cross_business_files: Optional[bool] = None
+    client_access_enabled: Optional[bool] = None
     workflow_access: Optional[List[str]] = None
-    integration_limits: Optional[Dict[str, Any]] = None
+    integration_access: Optional[List[str]] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -933,7 +1004,7 @@ class WorkflowContextResponse(BaseModel):
 class ChatRequest(BaseModel):
     """Request for RAG chat with documents"""
     message: str
-    business_id: int
+    business_id: Optional[int] = None  # None for cross-business chat
     max_context_tokens: int = 4000
     top_k: int = 5
     similarity_threshold: float = 0.7
