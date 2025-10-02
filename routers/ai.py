@@ -428,13 +428,14 @@ async def get_available_models(
 
 @router.post("/models/refresh", response_model=Dict[str, Any])
 async def refresh_models(
-    api_key: Optional[str] = Body(None, description="OpenAI API key (optional, uses system key if not provided)"),
+    request: Dict[str, Any] = Body(..., description="Request with optional API key"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_admin_user)
 ):
     """Refresh OpenAI models from API (admin only)"""
     from services.openai_model_service import OpenAIModelService
     try:
+        api_key = request.get("api_key") if request else None
         model_service = OpenAIModelService(db)
         result = await model_service.refresh_models_from_api(api_key)
         
