@@ -40,6 +40,11 @@ class User(Base):
     business_memberships = relationship("BusinessUser", back_populates="user")
     credit_pool = relationship("CreditPool", foreign_keys="CreditPool.owner_id", uselist=False)
     
+    # Legacy agency relationships (deprecated but kept for compatibility)
+    agency_memberships = relationship("AgencyUser", back_populates="user", foreign_keys="AgencyUser.user_id")
+    agency_invitations = relationship("AgencyUser", foreign_keys="AgencyUser.invited_by", overlaps="inviter")
+    created_agencies = relationship("Agency", foreign_keys="Agency.created_by")
+    
     # Seat management relationships
     master_account = relationship("User", remote_side=[id], back_populates="seat_users")
     seat_users = relationship("User", back_populates="master_account")
