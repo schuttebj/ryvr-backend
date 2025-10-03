@@ -7,7 +7,7 @@ import logging
 import tiktoken
 from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
 from openai import AsyncOpenAI
 import models
 from config import settings
@@ -301,7 +301,14 @@ class EmbeddingService:
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
         
-        result = self.db.execute(text(sql_query), params)
+        # Log the query for debugging
+        logger.info(f"🔍 Executing semantic search query")
+        logger.info(f"📊 SQL Query: {sql_query}")
+        logger.info(f"📊 Parameters: {list(params.keys())}")
+        
+        # Create text object with explicit parameter binding
+        stmt = text(sql_query)
+        result = self.db.execute(stmt, params)
         rows = result.fetchall()
         
         # Format results
