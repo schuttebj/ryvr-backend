@@ -236,6 +236,10 @@ class EmbeddingService:
         # Build search query
         embedding_column = 'content_embedding' if search_content else 'summary_embedding'
         
+        # Convert embedding list to PostgreSQL array format
+        import json
+        embedding_str = json.dumps(query_embedding)
+        
         sql_query = f"""
         SELECT 
             f.id,
@@ -244,28 +248,28 @@ class EmbeddingService:
             f.file_size,
             f.summary,
             f.created_at,
-            1 - (f.{embedding_column} <=> :query_embedding::vector) as similarity
+            1 - (f.{embedding_column} <=> %(query_embedding)s::vector) as similarity
         FROM files f
         WHERE 
-            f.business_id = :business_id
+            f.business_id = %(business_id)s
             AND f.{embedding_column} IS NOT NULL
             AND f.is_active = true
-            AND 1 - (f.{embedding_column} <=> :query_embedding::vector) >= :threshold
+            AND 1 - (f.{embedding_column} <=> %(query_embedding)s::vector) >= %(threshold)s
         """
         
         # Add file type filter if specified
         if file_types:
-            placeholders = ','.join([f":file_type_{i}" for i in range(len(file_types))])
+            placeholders = ','.join([f"%(file_type_{i})s" for i in range(len(file_types))])
             sql_query += f" AND f.file_type IN ({placeholders})"
         
         sql_query += f"""
-        ORDER BY f.{embedding_column} <=> :query_embedding::vector
-        LIMIT :limit
+        ORDER BY f.{embedding_column} <=> %(query_embedding)s::vector
+        LIMIT %(limit)s
         """
         
-        # Execute query
+        # Execute query with proper parameter binding
         params = {
-            'query_embedding': str(query_embedding),
+            'query_embedding': embedding_str,
             'business_id': business_id,
             'threshold': similarity_threshold,
             'limit': top_k
@@ -331,6 +335,10 @@ class EmbeddingService:
         )
         query_embedding = query_response.data[0].embedding
         
+        # Convert embedding to PostgreSQL array format
+        import json
+        embedding_str = json.dumps(query_embedding)
+        
         # Build query
         sql_query = """
         SELECT 
@@ -340,25 +348,25 @@ class EmbeddingService:
             c.chunk_index,
             c.chunk_metadata,
             f.original_name,
-            1 - (c.chunk_embedding <=> :query_embedding::vector) as similarity
+            1 - (c.chunk_embedding <=> %(query_embedding)s::vector) as similarity
         FROM document_chunks c
         JOIN files f ON f.id = c.file_id
         WHERE 
-            c.business_id = :business_id
+            c.business_id = %(business_id)s
             AND c.chunk_embedding IS NOT NULL
-            AND 1 - (c.chunk_embedding <=> :query_embedding::vector) >= :threshold
+            AND 1 - (c.chunk_embedding <=> %(query_embedding)s::vector) >= %(threshold)s
         """
         
         if file_id:
-            sql_query += " AND c.file_id = :file_id"
+            sql_query += " AND c.file_id = %(file_id)s"
         
         sql_query += """
-        ORDER BY c.chunk_embedding <=> :query_embedding::vector
-        LIMIT :limit
+        ORDER BY c.chunk_embedding <=> %(query_embedding)s::vector
+        LIMIT %(limit)s
         """
         
         params = {
-            'query_embedding': str(query_embedding),
+            'query_embedding': embedding_str,
             'business_id': business_id,
             'threshold': similarity_threshold,
             'limit': top_k
