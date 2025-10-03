@@ -576,19 +576,14 @@ async def get_dashboard_stats(current_user: models.User = Depends(get_current_ad
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         db = SessionLocal()
         
-        # User statistics
+        # User statistics (simplified structure)
         total_users = db.query(models.User).count()
         admin_users = db.query(models.User).filter(models.User.role == "admin").count()
-        agency_users = db.query(models.User).filter(models.User.role.like("agency_%")).count()
-        business_users = db.query(models.User).filter(models.User.role == "business_user").count()
+        regular_users = db.query(models.User).filter(models.User.role == "user").count()
         
-        # Agency statistics
-        total_agencies = db.query(models.Agency).count()
-        # Fix: Use distinct on specific column to avoid JSON equality issues
-        agencies_with_businesses = db.query(models.Agency.id).join(models.Business).distinct().count()
-        
-        # Business statistics  
+        # Business statistics (direct user ownership)
         total_businesses = db.query(models.Business).count()
+        users_with_businesses = db.query(models.User.id).join(models.Business, models.User.id == models.Business.owner_id).distinct().count()
         
         # Workflow statistics
         total_templates = db.query(models.WorkflowTemplate).count()
@@ -615,13 +610,9 @@ async def get_dashboard_stats(current_user: models.User = Depends(get_current_ad
         return {
             "users": {
                 "total": total_users,
-                "admin": admin_users,  # Frontend expects "admin" not "admins"
-                "agency": agency_users,  # Frontend expects "agency" not "agencies"
-                "individual": business_users  # Frontend expects "individual" not "businesses"
-            },
-            "agencies": {
-                "total": total_agencies,
-                "with_businesses": agencies_with_businesses
+                "admin": admin_users,
+                "regular": regular_users,  # Simplified: just admin and regular users
+                "with_businesses": users_with_businesses
             },
             "businesses": {
                 "total": total_businesses
