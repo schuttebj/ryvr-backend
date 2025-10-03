@@ -53,8 +53,7 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
     role: Optional[str] = None
-    agency_id: Optional[int] = None
-    business_id: Optional[int] = None
+    business_id: Optional[int] = None  # Current business context
 
 class LoginRequest(BaseModel):
     username: str
@@ -64,8 +63,7 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str
     user: User
-    agency_id: Optional[int] = None
-    business_id: Optional[int] = None
+    business_id: Optional[int] = None  # Current business context
 
 # =============================================================================
 # AGENCY SCHEMAS
@@ -140,7 +138,7 @@ class BusinessBase(BaseModel):
     branding_config: Optional[Dict[str, Any]] = {}
 
 class BusinessCreate(BusinessBase):
-    agency_id: int
+    owner_id: int  # Direct user ownership (no agency)
 
 class BusinessUpdate(BaseModel):
     name: Optional[str] = None
@@ -157,7 +155,7 @@ class BusinessUpdate(BaseModel):
 
 class Business(BusinessBase):
     id: int
-    agency_id: int
+    owner_id: int  # Direct user ownership (no agency)
     onboarding_data: Dict[str, Any]
     is_active: bool
     created_at: datetime
@@ -742,8 +740,8 @@ class AgencyStats(BaseModel):
 class BusinessContext(BaseModel):
     business_id: int
     business_name: str
-    agency_id: int
-    agency_name: str
+    owner_id: int
+    owner_name: str  # Owner's full name
     user_role: str
     permissions: Dict[str, Any]
 

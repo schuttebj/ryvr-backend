@@ -155,11 +155,6 @@ async def register_user(
     
     return create_user(db=db, user=user)
 
-@router.get("/me", response_model=schemas.User)
-async def read_users_me(current_user: models.User = Depends(get_current_active_user)):
-    """Get current user information."""
-    return current_user
-
 @router.get("/users", response_model=List[schemas.User])
 async def read_users(
     skip: int = 0,
