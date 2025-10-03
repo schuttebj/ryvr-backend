@@ -20,6 +20,8 @@ class EmbeddingService:
     """
     Service for generating and managing vector embeddings for semantic search
     Supports both file-level and chunk-level embeddings with business isolation
+    
+    VERSION: 2.0.0 - Fixed SQL parameter binding (2025-10-03)
     """
     
     # Embedding configuration
@@ -227,6 +229,8 @@ class EmbeddingService:
         """
         Semantic search across files for a business
         
+        VERSION CHECK: This is EmbeddingService v2.0.0 with fixed SQL parameter binding
+        
         Args:
             query: Search query text
             business_id: Business to search within
@@ -240,6 +244,9 @@ class EmbeddingService:
         Returns:
             List of matching files with similarity scores
         """
+        # Log version for debugging
+        logger.info("🔍 EmbeddingService.search_files() - VERSION 2.0.0 (SQL params fixed)")
+        
         # Generate query embedding
         api_key = self._get_openai_api_key(business_id, account_id, account_type)
         if not api_key:
