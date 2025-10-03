@@ -741,7 +741,8 @@ async def get_users(
                     "is_active": user.is_active,
                     "email_verified": user.email_verified,
                     "created_at": user.created_at,
-                    "last_login": user.last_login
+                    "is_master_account": user.is_master_account,
+                    "master_account_id": user.master_account_id
                 }
                 for user in users
             ],

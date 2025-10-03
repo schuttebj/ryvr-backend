@@ -148,29 +148,16 @@ def get_user_agencies(db: Session, user: models.User) -> list[models.Agency]:
     return agencies
 
 def get_user_businesses(db: Session, user: models.User, agency_id: Optional[int] = None) -> list[models.Business]:
-    """Get all businesses for a user, optionally filtered by agency."""
+    """Get all businesses for a user - simplified structure with direct ownership."""
     if user.role == "admin":
-        query = db.query(models.Business).filter(models.Business.is_active == True)
-        if agency_id:
-            query = query.filter(models.Business.agency_id == agency_id)
-        return query.all()
+        # Admin can see all businesses
+        return db.query(models.Business).filter(models.Business.is_active == True).all()
     
-    # Get businesses through agency memberships
-    agencies = get_user_agencies(db, user)
-    agency_ids = [agency.id for agency in agencies]
-    
-    if agency_id and agency_id not in agency_ids:
-        return []  # User doesn't have access to this agency
-    
-    query = db.query(models.Business).filter(
-        models.Business.agency_id.in_(agency_ids),
+    # Regular users see only businesses they own
+    return db.query(models.Business).filter(
+        models.Business.owner_id == user.id,
         models.Business.is_active == True
-    )
-    
-    if agency_id:
-        query = query.filter(models.Business.agency_id == agency_id)
-    
-    return query.all()
+    ).all()
 
 def verify_business_access(db: Session, user: models.User, business_id: int) -> bool:
     """Verify if user has access to a specific business."""
