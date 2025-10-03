@@ -136,8 +136,38 @@ async def switch_business_context(
         "message": "Business context switched successfully"
     }
 
-@router.post("/register", response_model=schemas.User)
+@router.post("/register", response_model=schemas.LoginResponse)
 async def register_user(
+    user: schemas.UserCreate,
+    db: Session = Depends(get_db)
+):
+    """Public user registration endpoint."""
+    # Check if username already exists
+    db_user = db.query(models.User).filter(
+        (models.User.username == user.username) | (models.User.email == user.email)
+    ).first()
+    if db_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Username or email already registered"
+        )
+    
+    # Create the user with 'user' role by default
+    new_user = create_user(db=db, user=user)
+    
+    # Create a login token for the new user
+    access_token = create_login_token(new_user, None)
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": new_user,
+        "businesses": [],
+        "current_business_id": None
+    }
+
+@router.post("/admin/register", response_model=schemas.User)
+async def admin_register_user(
     user: schemas.UserCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_admin_user)

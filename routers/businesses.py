@@ -20,6 +20,25 @@ import models, schemas
 
 router = APIRouter(prefix="/api/v1/businesses", tags=["businesses"])
 
+@router.get("/onboarding/default", response_model=schemas.OnboardingTemplate)
+async def get_default_business_onboarding_template(
+    db: Session = Depends(get_db)
+):
+    """Get default business onboarding template (public endpoint for registration)."""
+    template = db.query(models.OnboardingTemplate).filter(
+        models.OnboardingTemplate.target_type == "business",
+        models.OnboardingTemplate.is_default == True,
+        models.OnboardingTemplate.is_active == True
+    ).first()
+    
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No default onboarding template found"
+        )
+    
+    return template
+
 @router.get("/", response_model=List[schemas.Business])
 async def get_businesses(
     agency_id: Optional[int] = None,

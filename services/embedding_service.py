@@ -530,8 +530,11 @@ class EmbeddingService:
         account_type: str
     ) -> Optional[str]:
         """
-        Get OpenAI API key from business/agency integrations or fallback to global
-        Same logic as FileService
+        Get OpenAI API key from integrations with priority:
+        1. Business-level integration
+        2. Agency-level integration  
+        3. System-level integration (admin configured)
+        4. Global settings fallback
         """
         try:
             # Try business integration first
@@ -547,6 +550,7 @@ class EmbeddingService:
                 if business_integration and business_integration.credentials:
                     api_key = business_integration.credentials.get('api_key')
                     if api_key:
+                        logger.info(f"✅ Using business-level OpenAI API key for business {business_id}")
                         return api_key
             
             # Try agency integration
@@ -562,12 +566,34 @@ class EmbeddingService:
                 if agency_integration and agency_integration.credentials:
                     api_key = agency_integration.credentials.get('api_key')
                     if api_key:
+                        logger.info(f"✅ Using agency-level OpenAI API key for agency {account_id}")
                         return api_key
             
+            # Try system-level integration (admin configured)
+            logger.info("🔍 Checking for system-level OpenAI integration...")
+            system_integration = self.db.query(models.SystemIntegration).join(
+                models.Integration
+            ).filter(
+                models.Integration.provider == "openai",
+                models.SystemIntegration.is_active == True,
+                models.Integration.is_active == True
+            ).first()
+            
+            if system_integration and system_integration.credentials:
+                credentials = system_integration.credentials
+                if isinstance(credentials, str):
+                    import json
+                    credentials = json.loads(credentials)
+                api_key = credentials.get("api_key")
+                if api_key:
+                    logger.info("✅ Using system-level OpenAI API key")
+                    return api_key
+            
             # Fallback to global settings
+            logger.warning("⚠️ No integration found, falling back to environment variable")
             return settings.OPENAI_API_KEY if hasattr(settings, 'OPENAI_API_KEY') else None
             
         except Exception as e:
-            logger.error(f"Error getting OpenAI API key: {str(e)}")
+            logger.error(f"❌ Error getting OpenAI API key: {str(e)}")
             return settings.OPENAI_API_KEY if hasattr(settings, 'OPENAI_API_KEY') else None
 

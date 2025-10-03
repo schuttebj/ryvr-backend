@@ -875,6 +875,15 @@ class File(FileBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     
+    # Embedding fields
+    embedding_status: Optional[str] = None
+    is_embedded: Optional[bool] = False
+    embedding_model: Optional[str] = None
+    embedding_credits_used: Optional[int] = 0
+    summary_embedding: Optional[List[float]] = None  # Vector for summary
+    chunk_count: Optional[int] = 0
+    chunks_with_embeddings: Optional[int] = 0
+    
     class Config:
         from_attributes = True
 
