@@ -364,10 +364,28 @@ async def list_files_with_embeddings(
                 embedding_summary = "Not yet embedded"
             
             file_list.append({
-                'file_id': file.id,
+                'id': file.id,  # Add 'id' field for frontend compatibility
+                'file_id': file.id,  # Keep for backwards compatibility
                 'filename': file.original_name,
+                'original_name': file.original_name,
+                'file_name': file.file_name,
                 'file_type': file.file_type,
+                'file_size': file.file_size,
+                'file_path': file.file_path,
+                'content_text': None,  # Don't include full content for performance
+                'summary': file.summary,
+                'summary_credits_used': file.summary_credits_used or 0,
+                'processing_status': file.processing_status,
+                'tags': file.tags or [],
+                'file_metadata': file.file_metadata or {},
+                'is_active': file.is_active,
                 'created_at': file.created_at.isoformat() if file.created_at else None,
+                'updated_at': file.updated_at.isoformat() if file.updated_at else None,
+                'account_id': file.account_id,
+                'account_type': file.account_type,
+                'business_id': file.business_id,
+                'uploaded_by': file.uploaded_by,
+                # Embedding-specific fields
                 'embedding_status': file.embedding_status or 'pending',
                 'is_embedded': is_embedded,
                 'embedding_summary': embedding_summary,

@@ -259,51 +259,47 @@ class EmbeddingService:
         import json
         embedding_str = json.dumps(query_embedding)
         
-        sql_query = f"""
-        SELECT 
-            f.id,
-            f.original_name,
-            f.file_type,
-            f.file_size,
-            f.summary,
-            f.created_at,
-            1 - (f.{embedding_column} <=> :query_embedding::vector) as similarity
-        FROM files f
-        WHERE 
-            f.{embedding_column} IS NOT NULL
-            AND f.is_active = true
-            AND 1 - (f.{embedding_column} <=> :query_embedding::vector) >= :threshold
-        """
+        # Build SQL query parts
+        select_clause = f"SELECT f.id, f.original_name, f.file_type, f.file_size, f.summary, f.created_at, 1 - (f.{embedding_column} <=> :query_embedding::vector) as similarity"
+        from_clause = "FROM files f"
+        where_parts = [
+            f"f.{embedding_column} IS NOT NULL",
+            "f.is_active = true",
+            f"1 - (f.{embedding_column} <=> :query_embedding::vector) >= :threshold"
+        ]
         
-        # Add business filter - single or multiple businesses
+        # Initialize parameters
         params = {
             'query_embedding': embedding_str,
             'threshold': similarity_threshold,
             'limit': top_k
         }
         
+        # Add business filter - single or multiple businesses
         if business_ids:
             # Cross-business search
             placeholders = ','.join([f":business_id_{i}" for i in range(len(business_ids))])
-            sql_query += f" AND f.business_id IN ({placeholders})"
+            where_parts.append(f"f.business_id IN ({placeholders})")
             for i, bid in enumerate(business_ids):
                 params[f'business_id_{i}'] = bid
         elif business_id:
             # Single business search
-            sql_query += " AND f.business_id = :business_id"
+            where_parts.append("f.business_id = :business_id")
             params['business_id'] = business_id
         
         # Add file type filter if specified
         if file_types:
             placeholders = ','.join([f":file_type_{i}" for i in range(len(file_types))])
-            sql_query += f" AND f.file_type IN ({placeholders})"
+            where_parts.append(f"f.file_type IN ({placeholders})")
             for i, ft in enumerate(file_types):
                 params[f'file_type_{i}'] = ft
         
-        sql_query += f"""
-        ORDER BY f.{embedding_column} <=> :query_embedding::vector
-        LIMIT :limit
-        """
+        # Build complete query
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        order_clause = f"ORDER BY f.{embedding_column} <=> :query_embedding::vector"
+        limit_clause = "LIMIT :limit"
+        
+        sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
         
         result = self.db.execute(text(sql_query), params)
         rows = result.fetchall()
@@ -365,31 +361,14 @@ class EmbeddingService:
         import json
         embedding_str = json.dumps(query_embedding)
         
-        # Build query
-        sql_query = """
-        SELECT 
-            c.id,
-            c.file_id,
-            c.chunk_text,
-            c.chunk_index,
-            c.chunk_metadata,
-            f.original_name,
-            1 - (c.chunk_embedding <=> :query_embedding::vector) as similarity
-        FROM document_chunks c
-        JOIN files f ON f.id = c.file_id
-        WHERE 
-            c.business_id = :business_id
-            AND c.chunk_embedding IS NOT NULL
-            AND 1 - (c.chunk_embedding <=> :query_embedding::vector) >= :threshold
-        """
-        
-        if file_id:
-            sql_query += " AND c.file_id = :file_id"
-        
-        sql_query += """
-        ORDER BY c.chunk_embedding <=> :query_embedding::vector
-        LIMIT :limit
-        """
+        # Build query parts
+        select_clause = "SELECT c.id, c.file_id, c.chunk_text, c.chunk_index, c.chunk_metadata, f.original_name, 1 - (c.chunk_embedding <=> :query_embedding::vector) as similarity"
+        from_clause = "FROM document_chunks c JOIN files f ON f.id = c.file_id"
+        where_parts = [
+            "c.business_id = :business_id",
+            "c.chunk_embedding IS NOT NULL",
+            "1 - (c.chunk_embedding <=> :query_embedding::vector) >= :threshold"
+        ]
         
         params = {
             'query_embedding': embedding_str,
@@ -399,7 +378,15 @@ class EmbeddingService:
         }
         
         if file_id:
+            where_parts.append("c.file_id = :file_id")
             params['file_id'] = file_id
+        
+        # Build complete query
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        order_clause = "ORDER BY c.chunk_embedding <=> :query_embedding::vector"
+        limit_clause = "LIMIT :limit"
+        
+        sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
         
         result = self.db.execute(text(sql_query), params)
         rows = result.fetchall()
