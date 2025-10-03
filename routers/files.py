@@ -242,19 +242,18 @@ async def upload_business_file(
                 
                 logger.info(f"Auto-generating embeddings for business file {uploaded_file.id}")
                 
-                # Generate embeddings in background (don't block response)
-                import asyncio
-                asyncio.create_task(
-                    embedding_service.generate_file_embeddings(
-                        file_id=uploaded_file.id,
-                        business_id=business_id,
-                        account_id=account_id,
-                        account_type=account_type,
-                        force_regenerate=False
-                    )
+                # Generate embeddings synchronously (await the task)
+                # This ensures embeddings are generated before response is returned
+                await embedding_service.generate_file_embeddings(
+                    file_id=uploaded_file.id,
+                    business_id=business_id,
+                    account_id=account_id,
+                    account_type=account_type,
+                    force_regenerate=False
                 )
+                logger.info(f"Embeddings generated successfully for file {uploaded_file.id}")
             except Exception as e:
-                logger.warning(f"Auto-embedding failed for business file {uploaded_file.id}: {str(e)}")
+                logger.error(f"Auto-embedding failed for business file {uploaded_file.id}: {str(e)}", exc_info=True)
                 # Don't fail the upload if embedding fails
         
         return schemas.FileUploadResponse(

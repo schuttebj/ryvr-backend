@@ -880,7 +880,8 @@ class File(FileBase):
     is_embedded: Optional[bool] = False
     embedding_model: Optional[str] = None
     embedding_credits_used: Optional[int] = 0
-    summary_embedding: Optional[List[float]] = None  # Vector for summary
+    # NOTE: summary_embedding is excluded from response for performance (1536 floats)
+    # It's stored in DB for semantic search but not returned in API responses
     chunk_count: Optional[int] = 0
     chunks_with_embeddings: Optional[int] = 0
     
@@ -951,12 +952,16 @@ class EmbeddingGenerateResponse(BaseModel):
     """Response from embedding generation"""
     success: bool
     file_id: int
+    file_name: str  # Add file name for clarity
     message: Optional[str] = None
+    skipped: bool = False  # True if embeddings already exist and not regenerated
     summary_embedded: bool = False
     content_embedded: bool = False
     chunks_created: int = 0
+    chunks_embedded: int = 0  # Add explicit count of chunks embedded
     total_tokens_used: int = 0
     credits_used: int = 0
+    embedding_model: Optional[str] = None
 
 class SemanticSearchRequest(BaseModel):
     """Request for semantic search across files"""

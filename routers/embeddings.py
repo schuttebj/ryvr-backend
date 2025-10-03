@@ -342,7 +342,7 @@ async def list_files_with_embeddings(
             # Check if chunks have embeddings
             chunks_with_embeddings = db.query(models.DocumentChunk).filter(
                 models.DocumentChunk.file_id == file.id,
-                models.DocumentChunk.embedding.isnot(None)
+                models.DocumentChunk.chunk_embedding.isnot(None)
             ).count()
             
             # Determine if file is successfully embedded

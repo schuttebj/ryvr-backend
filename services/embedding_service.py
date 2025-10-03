@@ -74,12 +74,22 @@ class EmbeddingService:
         # Check if already embedded
         if not force_regenerate and file.embedding_status == 'completed':
             logger.info(f"File {file_id} already has embeddings, skipping")
+            chunk_count = self.db.query(models.DocumentChunk).filter(
+                models.DocumentChunk.file_id == file_id
+            ).count()
             return {
                 'success': True,
-                'message': 'Embeddings already exist',
                 'file_id': file_id,
-                'embeddings_generated': 0,
-                'credits_used': 0
+                'file_name': file.original_name,
+                'message': 'Embeddings already exist',
+                'skipped': True,
+                'summary_embedded': file.summary_embedding is not None,
+                'content_embedded': file.content_embedding is not None,
+                'chunks_created': chunk_count,
+                'chunks_embedded': chunk_count,
+                'total_tokens_used': 0,
+                'credits_used': 0,
+                'embedding_model': file.embedding_model
             }
         
         # Update status
@@ -99,11 +109,15 @@ class EmbeddingService:
             results = {
                 'success': True,
                 'file_id': file_id,
+                'file_name': file.original_name,
+                'skipped': False,
                 'summary_embedded': False,
                 'content_embedded': False,
                 'chunks_created': 0,
+                'chunks_embedded': 0,
                 'total_tokens_used': 0,
-                'credits_used': 0
+                'credits_used': 0,
+                'embedding_model': self.EMBEDDING_MODEL
             }
             
             # 1. Generate embedding for summary (fast search)
@@ -163,6 +177,7 @@ class EmbeddingService:
                         results['total_tokens_used'] += chunk_response.usage.total_tokens
                     
                     results['chunks_created'] = len(chunks)
+                    results['chunks_embedded'] = len(chunks)
             
             # Update file metadata
             file.embedding_model = self.EMBEDDING_MODEL
@@ -200,13 +215,14 @@ class EmbeddingService:
     async def search_files(
         self,
         query: str,
-        business_id: int,
+        business_id: Optional[int],
         account_id: int,
         account_type: str,
         top_k: int = DEFAULT_TOP_K,
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
         file_types: Optional[List[str]] = None,
-        search_content: bool = False
+        search_content: bool = False,
+        business_ids: Optional[List[int]] = None
     ) -> List[Dict[str, Any]]:
         """
         Semantic search across files for a business
@@ -251,36 +267,43 @@ class EmbeddingService:
             f.file_size,
             f.summary,
             f.created_at,
-            1 - (f.{embedding_column} <=> %(query_embedding)s::vector) as similarity
+            1 - (f.{embedding_column} <=> :query_embedding::vector) as similarity
         FROM files f
         WHERE 
-            f.business_id = %(business_id)s
-            AND f.{embedding_column} IS NOT NULL
+            f.{embedding_column} IS NOT NULL
             AND f.is_active = true
-            AND 1 - (f.{embedding_column} <=> %(query_embedding)s::vector) >= %(threshold)s
+            AND 1 - (f.{embedding_column} <=> :query_embedding::vector) >= :threshold
         """
         
-        # Add file type filter if specified
-        if file_types:
-            placeholders = ','.join([f"%(file_type_{i})s" for i in range(len(file_types))])
-            sql_query += f" AND f.file_type IN ({placeholders})"
-        
-        sql_query += f"""
-        ORDER BY f.{embedding_column} <=> %(query_embedding)s::vector
-        LIMIT %(limit)s
-        """
-        
-        # Execute query with proper parameter binding
+        # Add business filter - single or multiple businesses
         params = {
             'query_embedding': embedding_str,
-            'business_id': business_id,
             'threshold': similarity_threshold,
             'limit': top_k
         }
         
+        if business_ids:
+            # Cross-business search
+            placeholders = ','.join([f":business_id_{i}" for i in range(len(business_ids))])
+            sql_query += f" AND f.business_id IN ({placeholders})"
+            for i, bid in enumerate(business_ids):
+                params[f'business_id_{i}'] = bid
+        elif business_id:
+            # Single business search
+            sql_query += " AND f.business_id = :business_id"
+            params['business_id'] = business_id
+        
+        # Add file type filter if specified
         if file_types:
+            placeholders = ','.join([f":file_type_{i}" for i in range(len(file_types))])
+            sql_query += f" AND f.file_type IN ({placeholders})"
             for i, ft in enumerate(file_types):
                 params[f'file_type_{i}'] = ft
+        
+        sql_query += f"""
+        ORDER BY f.{embedding_column} <=> :query_embedding::vector
+        LIMIT :limit
+        """
         
         result = self.db.execute(text(sql_query), params)
         rows = result.fetchall()
@@ -351,21 +374,21 @@ class EmbeddingService:
             c.chunk_index,
             c.chunk_metadata,
             f.original_name,
-            1 - (c.chunk_embedding <=> %(query_embedding)s::vector) as similarity
+            1 - (c.chunk_embedding <=> :query_embedding::vector) as similarity
         FROM document_chunks c
         JOIN files f ON f.id = c.file_id
         WHERE 
-            c.business_id = %(business_id)s
+            c.business_id = :business_id
             AND c.chunk_embedding IS NOT NULL
-            AND 1 - (c.chunk_embedding <=> %(query_embedding)s::vector) >= %(threshold)s
+            AND 1 - (c.chunk_embedding <=> :query_embedding::vector) >= :threshold
         """
         
         if file_id:
-            sql_query += " AND c.file_id = %(file_id)s"
+            sql_query += " AND c.file_id = :file_id"
         
         sql_query += """
-        ORDER BY c.chunk_embedding <=> %(query_embedding)s::vector
-        LIMIT %(limit)s
+        ORDER BY c.chunk_embedding <=> :query_embedding::vector
+        LIMIT :limit
         """
         
         params = {
@@ -403,13 +426,14 @@ class EmbeddingService:
     async def get_context_for_workflow(
         self,
         query: str,
-        business_id: int,
+        business_id: Optional[int],
         account_id: int,
         account_type: str,
         max_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
         top_k: int = 10,
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
-        include_sources: bool = True
+        include_sources: bool = True,
+        business_ids: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         """
         Get relevant document context for workflow node injection
@@ -436,7 +460,8 @@ class EmbeddingService:
             account_type=account_type,
             top_k=top_k,
             similarity_threshold=similarity_threshold,
-            search_content=False  # Use summaries for speed
+            search_content=False,  # Use summaries for speed
+            business_ids=business_ids  # Pass business_ids for cross-business search
         )
         
         # If no file results, try chunks
