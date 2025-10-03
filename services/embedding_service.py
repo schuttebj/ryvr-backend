@@ -173,13 +173,16 @@ class EmbeddingService:
             
             # Track credits
             results['credits_used'] = results['total_tokens_used']
-            if business_id:
-                await self.credit_service.deduct_credits(
-                    business_id=business_id,
-                    amount=results['credits_used'],
-                    description=f"Vector embeddings for: {file.original_name}",
-                    category='ai_processing'
-                )
+            if business_id and account_id:
+                # Get credit pool for the user/account
+                credit_pool = self.db.query(models.CreditPool).filter_by(owner_id=account_id).first()
+                if credit_pool:
+                    self.credit_service.deduct_credits(
+                        pool_id=credit_pool.id,
+                        amount=results['credits_used'],
+                        description=f"Vector embeddings for: {file.original_name}",
+                        business_id=business_id
+                    )
             
             logger.info(f"Successfully generated embeddings for file {file_id}: {results}")
             return results
