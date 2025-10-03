@@ -85,6 +85,7 @@ async def get_user_context(
     elif current_user.role == 'admin':
         # Admins can see all businesses
         businesses = db.query(models.Business).all()
+        print(f"🔍 Admin user - found {len(businesses)} businesses in database")
     
     # Get seat users (only for master accounts)
     seat_users = []

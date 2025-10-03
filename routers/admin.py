@@ -172,7 +172,158 @@ async def reset_and_initialize_system(
         for tier_data in tiers:
             tier = models.SubscriptionTier(**tier_data)
             db.add(tier)
+        db.flush()  # Ensure tiers are created with IDs
         results.append("Created 3 subscription tiers")
+        
+        # Get the tiers we just created for assigning to test users
+        starter_tier = db.query(models.SubscriptionTier).filter_by(slug="starter").first()
+        professional_tier = db.query(models.SubscriptionTier).filter_by(slug="professional").first()
+        
+        # Create test users with businesses
+        logger.info("Creating test users with businesses...")
+        
+        # Test User 1 - Marketing Agency Owner
+        test_user1 = models.User(
+            username="john.doe",
+            email="john@example.com",
+            first_name="John",
+            last_name="Doe",
+            hashed_password=get_password_hash("password"),
+            role="user",
+            is_active=True,
+            email_verified=True,
+            is_master_account=True
+        )
+        db.add(test_user1)
+        db.flush()
+        
+        # Create subscription for test user 1
+        if professional_tier:
+            subscription1 = models.UserSubscription(
+                user_id=test_user1.id,
+                tier_id=professional_tier.id,
+                status="active"
+            )
+            db.add(subscription1)
+        
+        # Create credit pool for test user 1
+        credit_pool1 = models.CreditPool(
+            owner_id=test_user1.id,
+            total_credits=20000,
+            used_credits=0,
+            monthly_allowance=20000
+        )
+        db.add(credit_pool1)
+        
+        # Test User 2 - Small Business Owner
+        test_user2 = models.User(
+            username="jane.smith",
+            email="jane@example.com",
+            first_name="Jane",
+            last_name="Smith",
+            hashed_password=get_password_hash("password"),
+            role="user",
+            is_active=True,
+            email_verified=True,
+            is_master_account=True
+        )
+        db.add(test_user2)
+        db.flush()
+        
+        # Create subscription for test user 2
+        if starter_tier:
+            subscription2 = models.UserSubscription(
+                user_id=test_user2.id,
+                tier_id=starter_tier.id,
+                status="active"
+            )
+            db.add(subscription2)
+        
+        # Create credit pool for test user 2
+        credit_pool2 = models.CreditPool(
+            owner_id=test_user2.id,
+            total_credits=5000,
+            used_credits=0,
+            monthly_allowance=5000
+        )
+        db.add(credit_pool2)
+        db.flush()
+        
+        # Create test businesses
+        logger.info("Creating test businesses...")
+        
+        # Business 1 - Digital Marketing Agency
+        business1 = models.Business(
+            owner_id=test_user1.id,
+            name="Digital Marketing Pro",
+            slug="digital-marketing-pro",
+            industry="Marketing & Advertising",
+            website="https://digitalmarketingpro.example.com",
+            description="Full-service digital marketing agency specializing in SEO, social media, and content marketing.",
+            contact_email="contact@digitalmarketingpro.example.com",
+            onboarding_data={
+                "completed": True,
+                "business_goals": ["Increase online presence", "Generate leads", "Build brand awareness"],
+                "target_audience": "Small to medium businesses",
+                "services": ["SEO", "Social Media Marketing", "Content Marketing", "PPC Advertising"]
+            },
+            settings={
+                "notifications_enabled": True,
+                "timezone": "America/New_York"
+            },
+            is_active=True
+        )
+        db.add(business1)
+        
+        # Business 2 - E-commerce Store
+        business2 = models.Business(
+            owner_id=test_user1.id,
+            name="Fashion Forward Store",
+            slug="fashion-forward-store",
+            industry="E-commerce & Retail",
+            website="https://fashionforward.example.com",
+            description="Online fashion retailer offering trendy clothing and accessories.",
+            contact_email="support@fashionforward.example.com",
+            onboarding_data={
+                "completed": True,
+                "business_goals": ["Increase sales", "Expand product line", "Improve customer retention"],
+                "target_audience": "Fashion-conscious millennials and Gen Z",
+                "services": ["Online Retail", "Customer Service", "Fashion Consulting"]
+            },
+            settings={
+                "notifications_enabled": True,
+                "timezone": "America/Los_Angeles"
+            },
+            is_active=True
+        )
+        db.add(business2)
+        
+        # Business 3 - Local Restaurant
+        business3 = models.Business(
+            owner_id=test_user2.id,
+            name="Bella Italia Restaurant",
+            slug="bella-italia-restaurant",
+            industry="Food & Beverage",
+            website="https://bellaitalia.example.com",
+            description="Authentic Italian restaurant serving homemade pasta and traditional recipes.",
+            contact_email="info@bellaitalia.example.com",
+            onboarding_data={
+                "completed": True,
+                "business_goals": ["Increase reservations", "Build local reputation", "Grow catering business"],
+                "target_audience": "Local food enthusiasts and families",
+                "services": ["Dine-in", "Takeout", "Catering", "Private Events"]
+            },
+            settings={
+                "notifications_enabled": True,
+                "timezone": "America/Chicago"
+            },
+            is_active=True
+        )
+        db.add(business3)
+        db.flush()
+        
+        results.append("Created 2 test users (john.doe, jane.smith) - password: 'password'")
+        results.append("Created 3 test businesses (Digital Marketing Pro, Fashion Forward Store, Bella Italia Restaurant)")
         
         # Create system integrations
         logger.info("Creating system integrations...")
