@@ -209,8 +209,9 @@ async def reset_and_initialize_system(
         # Create credit pool for test user 1
         credit_pool1 = models.CreditPool(
             owner_id=test_user1.id,
-            total_credits=20000,
-            used_credits=0,
+            balance=20000,
+            total_purchased=20000,
+            total_used=0,
             monthly_allowance=20000
         )
         db.add(credit_pool1)
@@ -242,8 +243,9 @@ async def reset_and_initialize_system(
         # Create credit pool for test user 2
         credit_pool2 = models.CreditPool(
             owner_id=test_user2.id,
-            total_credits=5000,
-            used_credits=0,
+            balance=5000,
+            total_purchased=5000,
+            total_used=0,
             monthly_allowance=5000
         )
         db.add(credit_pool2)
