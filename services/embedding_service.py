@@ -123,11 +123,22 @@ class EmbeddingService:
             }
             
             # 1. Generate embedding for summary (fast search)
-            if file.summary and file.summary.strip():
+            if file.summary and file.summary.strip() and "Auto-generated summary unavailable" not in file.summary:
                 logger.info(f"Generating summary embedding for file {file_id}")
                 summary_response = await client.embeddings.create(
                     model=self.EMBEDDING_MODEL,
                     input=file.summary
+                )
+                file.summary_embedding = summary_response.data[0].embedding
+                results['summary_embedded'] = True
+                results['total_tokens_used'] += summary_response.usage.total_tokens
+            elif file.content_text and file.content_text.strip():
+                # Fallback: If summary is unavailable, use first 1000 chars of content
+                logger.warning(f"Summary unavailable for file {file_id}, using content preview for summary embedding")
+                content_preview = file.content_text[:1000]
+                summary_response = await client.embeddings.create(
+                    model=self.EMBEDDING_MODEL,
+                    input=content_preview
                 )
                 file.summary_embedding = summary_response.data[0].embedding
                 results['summary_embedded'] = True
