@@ -343,7 +343,11 @@ class EmbeddingService:
             for row in rows
         ]
         
-        logger.info(f"Search query '{query}' returned {len(results)} results for business {business_id}")
+        logger.info(f"🔍 Search query '{query}' returned {len(results)} results for business {business_id}")
+        if results:
+            logger.info(f"📄 Top result: {results[0]['filename']} (similarity: {results[0]['similarity']:.3f})")
+        else:
+            logger.warning(f"⚠️ No results found. Query: '{query}', Business: {business_id}, Threshold: {similarity_threshold}")
         return results
     
     async def search_chunks(

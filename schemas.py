@@ -968,7 +968,7 @@ class SemanticSearchRequest(BaseModel):
     query: str
     business_id: int
     top_k: int = 5
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0.5  # Lowered from 0.7 for better recall
     file_types: Optional[List[str]] = None
     search_content: bool = False  # If True, search full content; False = summaries (faster)
 
@@ -995,7 +995,7 @@ class WorkflowContextRequest(BaseModel):
     business_id: int
     max_tokens: int = 4000
     top_k: int = 10
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0.5  # Lowered from 0.7 for better recall
     include_sources: bool = True
 
 class ContextSource(BaseModel):
@@ -1019,7 +1019,7 @@ class ChatRequest(BaseModel):
     business_id: Optional[int] = None  # None for cross-business chat
     max_context_tokens: int = 4000
     top_k: int = 5
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0.5  # Lowered from 0.7 for better recall
     model: str = "gpt-4"  # or gpt-3.5-turbo
     temperature: float = 0.7
 

@@ -593,7 +593,8 @@ async def _chat_implementation(
         account_id, account_type = get_account_info(current_user)
         
         # Step 1: Get relevant context from documents
-        logger.info(f"Searching documents for query: {request.message}")
+        logger.info(f"🔍 Searching documents for query: {request.message}")
+        logger.info(f"📊 Search parameters: top_k={request.top_k}, similarity_threshold={request.similarity_threshold}, business_id={request.business_id}")
         
         if cross_business:
             # For cross-business chat, search across all user's businesses
@@ -641,6 +642,12 @@ async def _chat_implementation(
             )
         
         context_found = bool(context_result.get('context', '').strip())
+        
+        # Debug logging
+        logger.info(f"✅ Search complete: context_found={context_found}, sources={len(context_result.get('sources', []))}")
+        if not context_found:
+            logger.warning(f"⚠️ No relevant documents found for query: {request.message}")
+            logger.warning(f"📋 Context result: {context_result}")
         
         # Step 2: Generate AI response with context
         from services.openai_service import OpenAIService
