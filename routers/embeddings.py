@@ -712,15 +712,27 @@ Please let the user know that you don't have any relevant documents to answer th
         credits_used = tokens_used  # 1 token = 1 credit (adjust as needed)
         
         # Track credits
-        from services.credit_service import CreditService
-        credit_service = CreditService(db)
-        
-        await credit_service.deduct_credits(
-            business_id=request.business_id,
-            amount=credits_used,
-            description=f"RAG Chat: '{request.message[:50]}...'",
-            category='ai_processing'
-        )
+        # Deduct credits for API usage (skip for admin users)
+        if current_user.role != 'admin':
+            from services.credit_service import CreditService
+            credit_service = CreditService(db)
+            
+            # Get credit pool for the user
+            credit_pool = db.query(models.CreditPool).filter(
+                models.CreditPool.owner_id == account_id
+            ).first()
+            
+            if credit_pool:
+                credit_service.deduct_credits(
+                    pool_id=credit_pool.id,
+                    amount=credits_used,
+                    description=f"RAG Chat: '{request.message[:50]}...'",
+                    business_id=request.business_id,
+                    created_by=current_user.id,
+                    allow_overage=True
+                )
+            else:
+                logger.warning(f"No credit pool found for user {current_user.id}, skipping credit deduction")
         
         # Format sources for response
         sources = [
