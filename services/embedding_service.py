@@ -144,13 +144,23 @@ class EmbeddingService:
                 results['summary_embedded'] = True
                 results['total_tokens_used'] += summary_response.usage.total_tokens
             
-            # 2. Process content
+            # 2. Process content - ALWAYS create chunks for semantic search
             if file.content_text and file.content_text.strip():
                 content_tokens = len(self.encoding.encode(file.content_text))
                 
-                if content_tokens <= self.CHUNK_SIZE:
-                    # Small document - single embedding
-                    logger.info(f"Generating content embedding for file {file_id} ({content_tokens} tokens)")
+                # Always create chunks (even for small docs) for better search accuracy
+                logger.info(f"Chunking and embedding file {file_id} ({content_tokens} tokens)")
+                chunks = self._chunk_text(file.content_text)
+                
+                # Delete existing chunks if regenerating
+                if force_regenerate:
+                    self.db.query(models.DocumentChunk).filter(
+                        models.DocumentChunk.file_id == file_id
+                    ).delete()
+                
+                # If document is very small and results in only 1 chunk, also store full content embedding
+                if len(chunks) == 1:
+                    logger.info(f"Single chunk detected, also storing content_embedding")
                     content_response = await client.embeddings.create(
                         model=self.EMBEDDING_MODEL,
                         input=file.content_text
@@ -158,39 +168,30 @@ class EmbeddingService:
                     file.content_embedding = content_response.data[0].embedding
                     results['content_embedded'] = True
                     results['total_tokens_used'] += content_response.usage.total_tokens
-                else:
-                    # Large document - create chunks
-                    logger.info(f"Chunking and embedding file {file_id} ({content_tokens} tokens)")
-                    chunks = self._chunk_text(file.content_text)
+                
+                # Create and embed all chunks
+                for i, chunk_text in enumerate(chunks):
+                    chunk_response = await client.embeddings.create(
+                        model=self.EMBEDDING_MODEL,
+                        input=chunk_text
+                    )
                     
-                    # Delete existing chunks if regenerating
-                    if force_regenerate:
-                        self.db.query(models.DocumentChunk).filter(
-                            models.DocumentChunk.file_id == file_id
-                        ).delete()
-                    
-                    for i, chunk_text in enumerate(chunks):
-                        chunk_response = await client.embeddings.create(
-                            model=self.EMBEDDING_MODEL,
-                            input=chunk_text
-                        )
-                        
-                        chunk = models.DocumentChunk(
-                            file_id=file.id,
-                            business_id=business_id,
-                            chunk_index=i,
-                            chunk_text=chunk_text,
-                            chunk_embedding=chunk_response.data[0].embedding,
-                            chunk_metadata={
-                                'total_chunks': len(chunks),
-                                'token_count': len(self.encoding.encode(chunk_text))
-                            }
-                        )
-                        self.db.add(chunk)
-                        results['total_tokens_used'] += chunk_response.usage.total_tokens
-                    
-                    results['chunks_created'] = len(chunks)
-                    results['chunks_embedded'] = len(chunks)
+                    chunk = models.DocumentChunk(
+                        file_id=file.id,
+                        business_id=business_id,
+                        chunk_index=i,
+                        chunk_text=chunk_text,
+                        chunk_embedding=chunk_response.data[0].embedding,
+                        chunk_metadata={
+                            'total_chunks': len(chunks),
+                            'token_count': len(self.encoding.encode(chunk_text))
+                        }
+                    )
+                    self.db.add(chunk)
+                    results['total_tokens_used'] += chunk_response.usage.total_tokens
+                
+                results['chunks_created'] = len(chunks)
+                results['chunks_embedded'] = len(chunks)
             
             # Update file metadata
             file.embedding_model = self.EMBEDDING_MODEL
@@ -497,75 +498,53 @@ class EmbeddingService:
         Returns:
             Dict with formatted context and metadata
         """
-        # Search files first (faster)
-        file_results = await self.search_files(
+        # STRATEGY: Always search chunks for detailed content matching
+        # Chunks provide more accurate context than summaries
+        logger.info(f"🔍 Searching chunks with top_k={top_k * 2}, threshold={similarity_threshold}")
+        chunk_results = await self.search_chunks(
             query=query,
             business_id=business_id,
             account_id=account_id,
             account_type=account_type,
-            top_k=top_k,
-            similarity_threshold=similarity_threshold,
-            search_content=False,  # Use summaries for speed
-            business_ids=business_ids  # Pass business_ids for cross-business search
+            top_k=top_k * 2,  # Get more chunks for better coverage
+            similarity_threshold=similarity_threshold
         )
         
-        # If no file results, try chunks
-        if not file_results:
-            chunk_results = await self.search_chunks(
-                query=query,
-                business_id=business_id,
-                account_id=account_id,
-                account_type=account_type,
-                top_k=top_k,
-                similarity_threshold=similarity_threshold
-            )
-            
-            # Format chunk results
-            context_parts = []
-            current_tokens = 0
-            sources = []
+        context_parts = []
+        current_tokens = 0
+        sources = []
+        sources_set = set()  # Track unique sources
+        
+        # Use chunks if available
+        if chunk_results:
+            logger.info(f"✅ Found {len(chunk_results)} chunk results")
             
             for chunk in chunk_results:
                 chunk_tokens = len(self.encoding.encode(chunk['chunk_text']))
                 
                 if current_tokens + chunk_tokens > max_tokens:
+                    logger.info(f"⚠️ Reached token limit: {current_tokens}/{max_tokens}")
                     break
                 
-                context_parts.append(chunk['chunk_text'])
+                # Add chunk text with file context
+                chunk_context = f"[From: {chunk['filename']}]\n{chunk['chunk_text']}"
+                context_parts.append(chunk_context)
                 current_tokens += chunk_tokens
                 
-                if include_sources and chunk['filename'] not in sources:
-                    sources.append(chunk['filename'])
-            
-            context = "\n\n---\n\n".join(context_parts)
-            
-        else:
-            # Use file summaries
-            context_parts = []
-            current_tokens = 0
-            sources = []
-            
-            for file_result in file_results:
-                if not file_result['summary']:
-                    continue
-                
-                summary_tokens = len(self.encoding.encode(file_result['summary']))
-                
-                if current_tokens + summary_tokens > max_tokens:
-                    break
-                
-                file_context = f"[{file_result['filename']}]\n{file_result['summary']}"
-                context_parts.append(file_context)
-                current_tokens += summary_tokens
-                
-                if include_sources:
+                # Track unique source files
+                if include_sources and chunk['filename'] not in sources_set:
+                    sources_set.add(chunk['filename'])
                     sources.append({
-                        'file_id': file_result['file_id'],
-                        'filename': file_result['filename'],
-                        'similarity': file_result['similarity']
+                        'file_id': chunk['file_id'],
+                        'filename': chunk['filename'],
+                        'similarity': chunk['similarity']
                     })
             
             context = "\n\n---\n\n".join(context_parts)
+            logger.info(f"📝 Built context from {len(context_parts)} chunks, {current_tokens} tokens, {len(sources)} unique files")
+        else:
+            logger.warning(f"⚠️ No chunk results found, returning empty context")
+            context = ""
         
         return {
             'context': context,
