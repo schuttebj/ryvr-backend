@@ -8,7 +8,7 @@ from database import engine, Base
 from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, admin, simple_api, flows, files, embeddings
 from config import settings
 
-# DEPLOYMENT MARKER: 2025-10-03 - Fixed SQL parameter binding in embeddings v2.0.0
+# DEPLOYMENT MARKER: 2025-10-03 - Fixed SQLAlchemy text() binding in embeddings v2.1.0
 
 # Create database tables
 @asynccontextmanager
