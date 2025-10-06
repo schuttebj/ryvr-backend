@@ -8,7 +8,7 @@ from database import engine, Base
 from routers import auth, clients, integrations, workflows, analytics, seo, ai, data_processing, businesses, admin, simple_api, flows, files, embeddings
 from config import settings
 
-# DEPLOYMENT MARKER: 2025-10-03 - Embed vector directly in SQL (not as parameter) v2.2.0
+# DEPLOYMENT MARKER: 2025-10-06 - Add aggressive debug logging for embeddings v2.3.0
 
 # Create database tables
 @asynccontextmanager

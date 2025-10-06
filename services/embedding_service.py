@@ -21,7 +21,7 @@ class EmbeddingService:
     Service for generating and managing vector embeddings for semantic search
     Supports both file-level and chunk-level embeddings with business isolation
     
-    VERSION: 2.2.0 - Embed vector directly in SQL (not as parameter) (2025-10-03)
+    VERSION: 2.3.0 - Add aggressive debug logging (2025-10-06)
     """
     
     # Embedding configuration
@@ -257,7 +257,7 @@ class EmbeddingService:
         """
         # CRITICAL DEBUG: This MUST appear in logs if new code is running
         print("=" * 80)
-        print("🚨 EMBEDDING SERVICE VERSION 2.2.0 - SEARCH_FILES METHOD CALLED")
+        print("🚨 EMBEDDING SERVICE VERSION 2.3.0 - SEARCH_FILES METHOD CALLED")
         print("=" * 80)
         logger.info("🔍 EmbeddingService.search_files() - VERSION 2.2.0 (Vector embedded directly in SQL)")
         
@@ -272,6 +272,9 @@ class EmbeddingService:
             models.File.is_active == True,
             getattr(models.File, embedding_column).isnot(None)
         ).count()
+        print("=" * 80)
+        print(f"📊 Business {business_id} has {files_with_embeddings}/{total_files} files with {embedding_column}")
+        print("=" * 80)
         logger.info(f"📊 Business {business_id} has {files_with_embeddings}/{total_files} files with {embedding_column}")
         
         # Generate query embedding
