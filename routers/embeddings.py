@@ -594,7 +594,10 @@ async def _chat_implementation(
         
         # Step 1: Get relevant context from documents
         logger.info(f"🔍 Searching documents for query: {request.message}")
-        logger.info(f"📊 Search parameters: top_k={request.top_k}, similarity_threshold={request.similarity_threshold}, business_id={request.business_id}")
+        
+        # TEMPORARY: Force lower threshold for better recall (0.7 is too strict)
+        effective_threshold = min(request.similarity_threshold, 0.4)  # Use 0.4 max (40% similarity)
+        logger.info(f"📊 Search parameters: top_k={request.top_k}, similarity_threshold={request.similarity_threshold} -> {effective_threshold}, business_id={request.business_id}")
         
         if cross_business:
             # For cross-business chat, search across all user's businesses
@@ -624,7 +627,7 @@ async def _chat_implementation(
                 account_type=account_type,
                 max_tokens=request.max_context_tokens,
                 top_k=request.top_k,
-                similarity_threshold=request.similarity_threshold,
+                similarity_threshold=effective_threshold,  # Use lowered threshold
                 include_sources=True,
                 business_ids=[b.id for b in user_businesses]  # Pass list of accessible business IDs
             )
@@ -637,7 +640,7 @@ async def _chat_implementation(
                 account_type=account_type,
                 max_tokens=request.max_context_tokens,
                 top_k=request.top_k,
-                similarity_threshold=request.similarity_threshold,
+                similarity_threshold=effective_threshold,  # Use lowered threshold
                 include_sources=True
             )
         
