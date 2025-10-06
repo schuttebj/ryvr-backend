@@ -21,7 +21,7 @@ class EmbeddingService:
     Service for generating and managing vector embeddings for semantic search
     Supports both file-level and chunk-level embeddings with business isolation
     
-    VERSION: 2.1.0 - Fixed SQLAlchemy text() parameter binding (2025-10-03)
+    VERSION: 2.2.0 - Embed vector directly in SQL (not as parameter) (2025-10-03)
     """
     
     # Embedding configuration
@@ -246,9 +246,9 @@ class EmbeddingService:
         """
         # CRITICAL DEBUG: This MUST appear in logs if new code is running
         print("=" * 80)
-        print("🚨 EMBEDDING SERVICE VERSION 2.1.0 - SEARCH_FILES METHOD CALLED")
+        print("🚨 EMBEDDING SERVICE VERSION 2.2.0 - SEARCH_FILES METHOD CALLED")
         print("=" * 80)
-        logger.info("🔍 EmbeddingService.search_files() - VERSION 2.1.0 (SQLAlchemy text() fixed)")
+        logger.info("🔍 EmbeddingService.search_files() - VERSION 2.2.0 (Vector embedded directly in SQL)")
         
         # Generate query embedding
         api_key = self._get_openai_api_key(business_id, account_id, account_type)
@@ -265,22 +265,22 @@ class EmbeddingService:
         # Build search query
         embedding_column = 'content_embedding' if search_content else 'summary_embedding'
         
-        # Convert embedding list to PostgreSQL array format
+        # Convert embedding list to PostgreSQL array literal format
+        # We embed this directly in SQL (not as a parameter) because vector type needs special handling
         import json
-        embedding_str = json.dumps(query_embedding)
+        embedding_array_str = json.dumps(query_embedding)
         
-        # Build SQL query parts - USE :param STYLE FOR SQLAlchemy text()
-        select_clause = f"SELECT f.id, f.original_name, f.file_type, f.file_size, f.summary, f.created_at, 1 - (f.{embedding_column} <=> :query_embedding::vector) as similarity"
+        # Build SQL query parts - embed vector directly, use :param for other values
+        select_clause = f"SELECT f.id, f.original_name, f.file_type, f.file_size, f.summary, f.created_at, 1 - (f.{embedding_column} <=> '{embedding_array_str}'::vector) as similarity"
         from_clause = "FROM files f"
         where_parts = [
             f"f.{embedding_column} IS NOT NULL",
             "f.is_active = true",
-            f"1 - (f.{embedding_column} <=> :query_embedding::vector) >= :threshold"
+            f"1 - (f.{embedding_column} <=> '{embedding_array_str}'::vector) >= :threshold"
         ]
         
-        # Initialize parameters
+        # Initialize parameters (no query_embedding - it's embedded directly)
         params = {
-            'query_embedding': embedding_str,
             'threshold': similarity_threshold,
             'limit': top_k
         }
@@ -306,7 +306,7 @@ class EmbeddingService:
         
         # Build complete query
         where_clause = "WHERE " + " AND ".join(where_parts)
-        order_clause = f"ORDER BY f.{embedding_column} <=> :query_embedding::vector"
+        order_clause = f"ORDER BY f.{embedding_column} <=> '{embedding_array_str}'::vector"
         limit_clause = "LIMIT :limit"
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
@@ -382,21 +382,21 @@ class EmbeddingService:
         )
         query_embedding = query_response.data[0].embedding
         
-        # Convert embedding to PostgreSQL array format
+        # Convert embedding to PostgreSQL array literal format
+        # We embed this directly in SQL (not as a parameter) because vector type needs special handling
         import json
-        embedding_str = json.dumps(query_embedding)
+        embedding_array_str = json.dumps(query_embedding)
         
-        # Build query parts - USE :param STYLE FOR SQLAlchemy text()
-        select_clause = "SELECT c.id, c.file_id, c.chunk_text, c.chunk_index, c.chunk_metadata, f.original_name, 1 - (c.chunk_embedding <=> :query_embedding::vector) as similarity"
+        # Build query parts - embed vector directly, use :param for other values
+        select_clause = f"SELECT c.id, c.file_id, c.chunk_text, c.chunk_index, c.chunk_metadata, f.original_name, 1 - (c.chunk_embedding <=> '{embedding_array_str}'::vector) as similarity"
         from_clause = "FROM document_chunks c JOIN files f ON f.id = c.file_id"
         where_parts = [
             "c.business_id = :business_id",
             "c.chunk_embedding IS NOT NULL",
-            "1 - (c.chunk_embedding <=> :query_embedding::vector) >= :threshold"
+            f"1 - (c.chunk_embedding <=> '{embedding_array_str}'::vector) >= :threshold"
         ]
         
         params = {
-            'query_embedding': embedding_str,
             'business_id': business_id,
             'threshold': similarity_threshold,
             'limit': top_k
@@ -408,7 +408,7 @@ class EmbeddingService:
         
         # Build complete query
         where_clause = "WHERE " + " AND ".join(where_parts)
-        order_clause = "ORDER BY c.chunk_embedding <=> :query_embedding::vector"
+        order_clause = f"ORDER BY c.chunk_embedding <=> '{embedding_array_str}'::vector"
         limit_clause = "LIMIT :limit"
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
