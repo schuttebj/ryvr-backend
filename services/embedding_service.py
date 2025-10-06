@@ -250,6 +250,19 @@ class EmbeddingService:
         print("=" * 80)
         logger.info("🔍 EmbeddingService.search_files() - VERSION 2.2.0 (Vector embedded directly in SQL)")
         
+        # DEBUG: Check how many files have embeddings
+        embedding_column = 'content_embedding' if search_content else 'summary_embedding'
+        total_files = self.db.query(models.File).filter(
+            models.File.business_id == business_id,
+            models.File.is_active == True
+        ).count()
+        files_with_embeddings = self.db.query(models.File).filter(
+            models.File.business_id == business_id,
+            models.File.is_active == True,
+            getattr(models.File, embedding_column).isnot(None)
+        ).count()
+        logger.info(f"📊 Business {business_id} has {files_with_embeddings}/{total_files} files with {embedding_column}")
+        
         # Generate query embedding
         api_key = self._get_openai_api_key(business_id, account_id, account_type)
         if not api_key:
