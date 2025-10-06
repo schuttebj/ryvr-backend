@@ -269,13 +269,13 @@ class EmbeddingService:
         import json
         embedding_str = json.dumps(query_embedding)
         
-        # Build SQL query parts
-        select_clause = f"SELECT f.id, f.original_name, f.file_type, f.file_size, f.summary, f.created_at, 1 - (f.{embedding_column} <=> :query_embedding::vector) as similarity"
+        # Build SQL query parts - USE %(param)s STYLE FOR PSYCOPG3
+        select_clause = f"SELECT f.id, f.original_name, f.file_type, f.file_size, f.summary, f.created_at, 1 - (f.{embedding_column} <=> %(query_embedding)s::vector) as similarity"
         from_clause = "FROM files f"
         where_parts = [
             f"f.{embedding_column} IS NOT NULL",
             "f.is_active = true",
-            f"1 - (f.{embedding_column} <=> :query_embedding::vector) >= :threshold"
+            f"1 - (f.{embedding_column} <=> %(query_embedding)s::vector) >= %(threshold)s"
         ]
         
         # Initialize parameters
@@ -288,26 +288,26 @@ class EmbeddingService:
         # Add business filter - single or multiple businesses
         if business_ids:
             # Cross-business search
-            placeholders = ','.join([f":business_id_{i}" for i in range(len(business_ids))])
+            placeholders = ','.join([f"%(business_id_{i})s" for i in range(len(business_ids))])
             where_parts.append(f"f.business_id IN ({placeholders})")
             for i, bid in enumerate(business_ids):
                 params[f'business_id_{i}'] = bid
         elif business_id:
             # Single business search
-            where_parts.append("f.business_id = :business_id")
+            where_parts.append("f.business_id = %(business_id)s")
             params['business_id'] = business_id
         
         # Add file type filter if specified
         if file_types:
-            placeholders = ','.join([f":file_type_{i}" for i in range(len(file_types))])
+            placeholders = ','.join([f"%(file_type_{i})s" for i in range(len(file_types))])
             where_parts.append(f"f.file_type IN ({placeholders})")
             for i, ft in enumerate(file_types):
                 params[f'file_type_{i}'] = ft
         
         # Build complete query
         where_clause = "WHERE " + " AND ".join(where_parts)
-        order_clause = f"ORDER BY f.{embedding_column} <=> :query_embedding::vector"
-        limit_clause = "LIMIT :limit"
+        order_clause = f"ORDER BY f.{embedding_column} <=> %(query_embedding)s::vector"
+        limit_clause = "LIMIT %(limit)s"
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
         
@@ -386,13 +386,13 @@ class EmbeddingService:
         import json
         embedding_str = json.dumps(query_embedding)
         
-        # Build query parts
-        select_clause = "SELECT c.id, c.file_id, c.chunk_text, c.chunk_index, c.chunk_metadata, f.original_name, 1 - (c.chunk_embedding <=> :query_embedding::vector) as similarity"
+        # Build query parts - USE %(param)s STYLE FOR PSYCOPG3
+        select_clause = "SELECT c.id, c.file_id, c.chunk_text, c.chunk_index, c.chunk_metadata, f.original_name, 1 - (c.chunk_embedding <=> %(query_embedding)s::vector) as similarity"
         from_clause = "FROM document_chunks c JOIN files f ON f.id = c.file_id"
         where_parts = [
-            "c.business_id = :business_id",
+            "c.business_id = %(business_id)s",
             "c.chunk_embedding IS NOT NULL",
-            "1 - (c.chunk_embedding <=> :query_embedding::vector) >= :threshold"
+            "1 - (c.chunk_embedding <=> %(query_embedding)s::vector) >= %(threshold)s"
         ]
         
         params = {
@@ -403,13 +403,13 @@ class EmbeddingService:
         }
         
         if file_id:
-            where_parts.append("c.file_id = :file_id")
+            where_parts.append("c.file_id = %(file_id)s")
             params['file_id'] = file_id
         
         # Build complete query
         where_clause = "WHERE " + " AND ".join(where_parts)
-        order_clause = "ORDER BY c.chunk_embedding <=> :query_embedding::vector"
-        limit_clause = "LIMIT :limit"
+        order_clause = "ORDER BY c.chunk_embedding <=> %(query_embedding)s::vector"
+        limit_clause = "LIMIT %(limit)s"
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
         
