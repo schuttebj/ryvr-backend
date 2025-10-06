@@ -244,7 +244,10 @@ class EmbeddingService:
         Returns:
             List of matching files with similarity scores
         """
-        # Log version for debugging
+        # CRITICAL DEBUG: This MUST appear in logs if new code is running
+        print("=" * 80)
+        print("🚨 EMBEDDING SERVICE VERSION 2.0.0 - SEARCH_FILES METHOD CALLED")
+        print("=" * 80)
         logger.info("🔍 EmbeddingService.search_files() - VERSION 2.0.0 (SQL params fixed)")
         
         # Generate query embedding
@@ -307,6 +310,14 @@ class EmbeddingService:
         limit_clause = "LIMIT :limit"
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
+        
+        # CRITICAL DEBUG: Show actual SQL being generated
+        print("=" * 80)
+        print("🔍 SQL QUERY GENERATED:")
+        print(sql_query)
+        print("🔍 PARAMETERS:")
+        print(params)
+        print("=" * 80)
         
         # Log the query for debugging
         logger.info(f"🔍 Executing semantic search query")
