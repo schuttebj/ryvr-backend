@@ -324,9 +324,8 @@ class EmbeddingService:
         logger.info(f"📊 SQL Query: {sql_query}")
         logger.info(f"📊 Parameters: {list(params.keys())}")
         
-        # Create text object with explicit parameter binding
-        stmt = text(sql_query)
-        result = self.db.execute(stmt, params)
+        # Execute directly using the connection to avoid text() escaping
+        result = self.db.execute(sql_query, params)
         rows = result.fetchall()
         
         # Format results
@@ -413,7 +412,8 @@ class EmbeddingService:
         
         sql_query = f"{select_clause} {from_clause} {where_clause} {order_clause} {limit_clause}"
         
-        result = self.db.execute(text(sql_query), params)
+        # Execute directly to avoid text() escaping
+        result = self.db.execute(sql_query, params)
         rows = result.fetchall()
         
         results = [
