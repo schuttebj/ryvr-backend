@@ -261,18 +261,80 @@ class WorkflowExecutionService:
     async def _execute_content_extract_node(self, config: Dict[str, Any], input_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute content extraction node"""
         try:
-            # Extract URLs from input mapping
-            input_mapping = config.get('inputMapping', '')
-            urls = self._extract_data_by_path(input_data, input_mapping)
+            urls = []
             
-            if isinstance(urls, str):
-                urls = [urls]
-            elif not isinstance(urls, list):
-                raise ValueError("Input mapping must point to URL string or array of URLs")
+            # Primary: Try urlSource (new format) - supports variables like {{node.path}}
+            url_source = config.get('urlSource', '')
+            if url_source:
+                logger.info(f"Processing urlSource: {url_source}")
+                
+                # Process variables in the URL source using {{variable}} syntax
+                processed_url_source = self._process_variables(url_source, input_data)
+                logger.info(f"Processed urlSource result: {processed_url_source}")
+                
+                # Parse the processed result to extract URLs
+                if processed_url_source:
+                    # Check if result contains actual URLs
+                    if 'http' in processed_url_source:
+                        # Extract URLs using regex
+                        import re
+                        # First, try to extract URLs directly (handles any format)
+                        url_matches = re.findall(r'https?://[^\s+,\n\r\t]+', processed_url_source)
+                        if url_matches:
+                            urls = url_matches
+                        else:
+                            # Try splitting by common delimiters including ' + ' (space-plus-space from variable system)
+                            # Split on: comma, newline, tab, or ' + ' (the new variable separator)
+                            urls = [
+                                url.strip() 
+                                for url in re.split(r'\s*[,+\n\r\t]\s*|\s+\+\s+', processed_url_source)
+                                if url.strip() and 'http' in url
+                            ]
+                    else:
+                        # The variable didn't resolve - try as a direct path
+                        # Remove {{ }} if present and try direct path extraction
+                        clean_path = url_source.replace('{{', '').replace('}}', '').strip()
+                        if '|' in clean_path:
+                            clean_path = clean_path.split('|')[0].strip()
+                        
+                        resolved_data = self._extract_data_by_path(input_data, clean_path)
+                        logger.info(f"Resolved data from path: {type(resolved_data)}")
+                        
+                        if isinstance(resolved_data, list):
+                            urls = [url for url in resolved_data if url and isinstance(url, str) and 'http' in url]
+                        elif isinstance(resolved_data, str) and 'http' in resolved_data:
+                            urls = [resolved_data]
+            
+            # Fallback: Try legacy inputMapping (old format) - direct path without {{}}
+            if not urls:
+                input_mapping = config.get('inputMapping', '')
+                if input_mapping:
+                    logger.info(f"Falling back to inputMapping: {input_mapping}")
+                    resolved_data = self._extract_data_by_path(input_data, input_mapping)
+                    
+                    if isinstance(resolved_data, str):
+                        urls = [resolved_data]
+                    elif isinstance(resolved_data, list):
+                        urls = resolved_data if resolved_data else []
+                    else:
+                        logger.warning(f"Input mapping resolved to unexpected type: {type(resolved_data)}")
+            
+            # Validate we have URLs
+            if not urls:
+                logger.error("No URLs found to extract content from")
+                logger.error(f"Config: urlSource={config.get('urlSource')}, inputMapping={config.get('inputMapping')}")
+                logger.error(f"Available input_data keys: {list(input_data.keys()) if input_data else 'None'}")
+                raise ValueError("No URLs found to extract content from. Check your URL source configuration.")
+            
+            # Apply maxUrls limit
+            max_urls = config.get('maxUrls', 10)
+            urls = urls[:max_urls]
+            
+            logger.info(f"Extracted {len(urls)} URLs for content extraction")
             
             # Mock content extraction
             extracted_content = []
-            for i, url in enumerate(urls[:10]):  # Limit to 10 URLs
+            for i, url in enumerate(urls):
                 extracted_content.append({
                     'url': url,
                     'title': f'Extracted Title {i+1}',
@@ -287,6 +349,7 @@ class WorkflowExecutionService:
                 'raw': {'urls': urls, 'config': config},
                 'summary': {
                     'urls_processed': len(extracted_content),
+                    'total_urls_found': len(urls),
                     'total_words': sum(item['word_count'] for item in extracted_content),
                     'extraction_type': config.get('extractionType', 'full_text')
                 },
@@ -295,6 +358,7 @@ class WorkflowExecutionService:
             
         except Exception as e:
             logger.error(f"Content extract node execution failed: {e}")
+            logger.exception("Full traceback:")
             raise
     
     def _process_variables(self, text: str, input_data: Optional[Dict[str, Any]]) -> str:
@@ -320,9 +384,48 @@ class WorkflowExecutionService:
                 
                 # Apply formatting
                 if format_type == 'list' and isinstance(value, list):
-                    formatted_value = ', '.join(str(v) for v in value)
+                    # Join array items with comma-space (matches frontend behavior)
+                    # Handle array of objects by extracting useful properties
+                    list_items = []
+                    for item in value:
+                        if isinstance(item, dict):
+                            # Try common properties that make sense for lists
+                            extracted = (item.get('url') or item.get('title') or item.get('name') or 
+                                       item.get('domain') or item.get('keyword') or json.dumps(item))
+                            list_items.append(str(extracted))
+                        else:
+                            list_items.append(str(item))
+                    formatted_value = ', '.join(list_items)
                 elif format_type == 'json':
                     formatted_value = json.dumps(value)
+                elif format_type == 'count':
+                    formatted_value = str(len(value)) if isinstance(value, list) else '1'
+                elif format_type == 'first':
+                    formatted_value = str(value[0]) if isinstance(value, list) and len(value) > 0 else str(value) if value else ''
+                elif format_type == 'last':
+                    formatted_value = str(value[-1]) if isinstance(value, list) and len(value) > 0 else str(value) if value else ''
+                elif format_type.startswith('range:'):
+                    # Handle range format like "range:0-4"
+                    if isinstance(value, list):
+                        range_match = re.match(r'range:(\d+)-(\d+)', format_type)
+                        if range_match:
+                            start = int(range_match.group(1))
+                            end = int(range_match.group(2))
+                            range_slice = value[start:end+1]
+                            # Handle array of objects by extracting useful properties
+                            range_items = []
+                            for item in range_slice:
+                                if isinstance(item, dict):
+                                    extracted = (item.get('url') or item.get('title') or item.get('name') or 
+                                               item.get('domain') or item.get('keyword') or json.dumps(item))
+                                    range_items.append(str(extracted))
+                                else:
+                                    range_items.append(str(item))
+                            formatted_value = ', '.join(range_items)
+                        else:
+                            formatted_value = ', '.join(str(v) for v in value)
+                    else:
+                        formatted_value = str(value) if value is not None else ''
                 else:
                     formatted_value = str(value) if value is not None else ''
                 
@@ -344,27 +447,62 @@ class WorkflowExecutionService:
             current = data
             parts = path.split('.')
             
-            for part in parts:
+            for i, part in enumerate(parts):
                 if '[' in part and ']' in part:
-                    # Handle array access
+                    # Handle array access with brackets: items[0] or items[*]
                     key, bracket_content = part.split('[', 1)
                     index = bracket_content.rstrip(']')
                     
+                    # Get the array first if there's a key
                     if key:
                         current = current[key]
                     
                     if index == '*':
-                        # Return all items or extract from all items
-                        continue
+                        # Array wildcard - extract remaining path from each item
+                        if not isinstance(current, list):
+                            logger.warning(f"Expected list for wildcard access at '{part}', got {type(current)}")
+                            return None
+                        
+                        # If there are more parts after this wildcard, recursively extract from each item
+                        remaining_parts = parts[i+1:]
+                        if remaining_parts:
+                            remaining_path = '.'.join(remaining_parts)
+                            results = []
+                            for item in current:
+                                # Recursively extract from each item
+                                sub_result = self._extract_data_by_path(item, remaining_path)
+                                if sub_result is not None:
+                                    # If the sub_result is a list, extend; otherwise append
+                                    if isinstance(sub_result, list):
+                                        results.extend(sub_result)
+                                    else:
+                                        results.append(sub_result)
+                            return results
+                        else:
+                            # No more parts, return the entire array
+                            return current
                     else:
+                        # Specific index access
                         current = current[int(index)]
+                elif part.isdigit():
+                    # Handle numeric index in dot notation: items.0 (treat as array index)
+                    if isinstance(current, list):
+                        current = current[int(part)]
+                    elif isinstance(current, dict) and part in current:
+                        # Could be a dict key that happens to be numeric
+                        current = current[part]
+                    else:
+                        logger.warning(f"Cannot access index {part} on {type(current)}")
+                        return None
                 else:
+                    # Simple key access
                     current = current[part]
             
             return current
             
         except (KeyError, IndexError, ValueError, TypeError) as e:
             logger.warning(f"Failed to extract data at path '{path}': {e}")
+            logger.debug(f"Current data type: {type(data)}, Path: {path}")
             return None
     
     def get_node_execution_result(self, node_id: str) -> Optional[Dict[str, Any]]:
