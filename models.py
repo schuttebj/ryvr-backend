@@ -548,7 +548,7 @@ class WorkflowStepExecution(Base):
     
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'skipped')", name='check_step_status'),
-        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task', 'review', 'options', 'conditional', 'api_call', 'trigger')", name='check_step_type'),
+        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task', 'review', 'options', 'conditional', 'api_call', 'trigger', 'email', 'seo', 'data_extraction', 'webhook', 'delay', 'loop', 'filter')", name='check_step_type'),
     )
 
 class FlowReviewApproval(Base):

@@ -203,7 +203,9 @@ class WorkflowExecutor:
             result = {}
             
             # Route to appropriate handler based on step type
-            if step_type == "api_call":
+            if step_type == "trigger":
+                result = await self._execute_trigger_step(execution, step)
+            elif step_type == "api_call":
                 result = await self._execute_api_call_step(execution, step)
             elif step_type == "task":
                 result = await self._execute_task_step(execution, step)
@@ -217,6 +219,10 @@ class WorkflowExecutor:
                 result = await self._execute_options_step(execution, step)
             elif step_type == "conditional":
                 result = await self._execute_conditional_step(execution, step)
+            elif step_type == "email":
+                result = await self._execute_email_step(execution, step)
+            elif step_type == "seo":
+                result = await self._execute_seo_step(execution, step)
             else:
                 result = {
                     "success": False,
@@ -239,6 +245,20 @@ class WorkflowExecutor:
             step_execution.completed_at = datetime.now(timezone.utc)
             self.db.commit()
             raise
+    
+    async def _execute_trigger_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a trigger step (initiates the workflow)"""
+        logger.info("Executing trigger step - workflow initiated")
+        
+        # Trigger steps just mark the workflow as started
+        # They pass through any input data to subsequent steps
+        return {
+            "success": True,
+            "triggered": True,
+            "message": "Workflow triggered successfully",
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
+            "credits_used": 0
+        }
     
     async def _execute_api_call_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an API call step (integration call)"""
@@ -321,6 +341,30 @@ class WorkflowExecutor:
             "success": True,
             "result": {"message": "Conditional evaluated (mock)"},
             "credits_used": 0
+        }
+    
+    async def _execute_email_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute an email step"""
+        logger.info("Executing email step")
+        
+        # TODO: Integrate with actual email service
+        return {
+            "success": True,
+            "result": {"message": "Email sent (mock)"},
+            "credits_used": 1
+        }
+    
+    async def _execute_seo_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute an SEO analysis step"""
+        operation = step.get("operation")
+        logger.info(f"Executing SEO step: {operation}")
+        
+        # TODO: Integrate with DataForSEO or other SEO service
+        return {
+            "success": True,
+            "operation": operation,
+            "result": {"message": "SEO analysis completed (mock)"},
+            "credits_used": 5
         }
     
     def _complete_execution(self, execution: models.WorkflowExecution, message: str):
