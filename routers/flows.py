@@ -238,6 +238,89 @@ async def update_flow(
         raise HTTPException(status_code=500, detail="Failed to update flow")
 
 
+@router.get("/flows/{flow_id}/details")
+async def get_flow_details(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get detailed flow information including step executions"""
+    try:
+        # Get execution
+        execution = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.id == flow_id
+        ).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        
+        # Verify business access
+        business = db.query(models.Business).filter(
+            models.Business.id == execution.business_id
+        ).first()
+        
+        if not business:
+            raise HTTPException(status_code=404, detail="Business not found")
+        
+        # Check if user has access to this business
+        if business.owner_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get step executions
+        step_executions = db.query(models.WorkflowStepExecution).filter(
+            models.WorkflowStepExecution.execution_id == flow_id
+        ).order_by(models.WorkflowStepExecution.created_at).all()
+        
+        # Calculate progress
+        progress = 0
+        if execution.total_steps > 0:
+            progress = int((execution.completed_steps / execution.total_steps) * 100)
+        
+        return {
+            "id": execution.id,
+            "title": execution.flow_title or execution.template.name,
+            "template_name": execution.template.name,
+            "template_id": execution.template_id,
+            "business_id": execution.business_id,
+            "status": execution.flow_status,
+            "progress": progress,
+            "current_step": execution.current_step,
+            "total_steps": execution.total_steps,
+            "completed_steps": execution.completed_steps,
+            "created_at": execution.created_at.isoformat(),
+            "created_by": execution.template.created_by,
+            "credits_used": execution.credits_used,
+            "estimated_duration": execution.template.estimated_duration,
+            "custom_field_values": execution.custom_field_values or {},
+            "error_message": execution.error_message,
+            "started_at": execution.started_at.isoformat() if execution.started_at else None,
+            "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+            "step_executions": [
+                {
+                    "id": step.id,
+                    "step_id": step.step_id,
+                    "step_name": step.step_name,
+                    "step_type": step.step_type,
+                    "status": step.status,
+                    "input_data": step.input_data,
+                    "output_data": step.output_data,
+                    "error_data": step.error_data,
+                    "credits_used": step.credits_used,
+                    "execution_time_ms": step.execution_time_ms,
+                    "started_at": step.started_at.isoformat() if step.started_at else None,
+                    "completed_at": step.completed_at.isoformat() if step.completed_at else None,
+                }
+                for step in step_executions
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting flow details {flow_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get flow details: {str(e)}")
+
+
 @router.post("/flows/{flow_id}/start")
 async def start_flow(
     flow_id: int,
@@ -282,6 +365,128 @@ async def start_flow(
         logger.error(f"Error starting flow {flow_id}: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to start flow: {str(e)}")
+
+
+@router.post("/flows/{flow_id}/rerun")
+async def rerun_flow(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Rerun a completed or failed flow"""
+    try:
+        # Get original execution
+        original_execution = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.id == flow_id
+        ).first()
+        
+        if not original_execution:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        
+        # Verify business access
+        business = db.query(models.Business).filter(
+            models.Business.id == original_execution.business_id
+        ).first()
+        
+        if not business:
+            raise HTTPException(status_code=404, detail="Business not found")
+        
+        # Check if user has access to this business
+        if business.owner_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if flow can be rerun (must be complete, failed, or error)
+        if original_execution.flow_status not in ['complete', 'error', 'failed']:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot rerun flow with status '{original_execution.flow_status}'. Only completed or failed flows can be rerun."
+            )
+        
+        # Create new execution from the original
+        new_execution = models.WorkflowExecution(
+            template_id=original_execution.template_id,
+            business_id=original_execution.business_id,
+            execution_mode=original_execution.execution_mode,
+            runtime_state=original_execution.runtime_state.copy() if original_execution.runtime_state else {},
+            total_steps=original_execution.total_steps,
+            flow_status="new",
+            flow_title=f"{original_execution.flow_title} (Rerun)",
+            custom_field_values=original_execution.custom_field_values.copy() if original_execution.custom_field_values else {}
+        )
+        
+        db.add(new_execution)
+        db.commit()
+        db.refresh(new_execution)
+        
+        logger.info(f"Created rerun flow {new_execution.id} from original flow {flow_id}")
+        
+        return {
+            "message": "Flow rerun created successfully",
+            "original_flow_id": flow_id,
+            "new_flow_id": new_execution.id,
+            "status": new_execution.flow_status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rerunning flow {flow_id}: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to rerun flow: {str(e)}")
+
+
+@router.delete("/flows/{flow_id}")
+async def delete_flow(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Delete a flow"""
+    try:
+        # Get execution
+        execution = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.id == flow_id
+        ).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        
+        # Verify business access
+        business = db.query(models.Business).filter(
+            models.Business.id == execution.business_id
+        ).first()
+        
+        if not business:
+            raise HTTPException(status_code=404, detail="Business not found")
+        
+        # Check if user has access to this business
+        if business.owner_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Don't allow deleting running flows
+        if execution.flow_status == "in_progress" or execution.status == "running":
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete a running flow. Please wait for it to complete or fail first."
+            )
+        
+        # Delete the execution (cascade will delete related records)
+        db.delete(execution)
+        db.commit()
+        
+        logger.info(f"Deleted flow {flow_id} for business {execution.business_id}")
+        
+        return {
+            "message": "Flow deleted successfully",
+            "flow_id": flow_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting flow {flow_id}: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete flow: {str(e)}")
 
 
 @router.post("/flows/{flow_id}/reviews/{step_id}/approve")
