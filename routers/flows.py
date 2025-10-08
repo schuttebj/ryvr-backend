@@ -261,18 +261,27 @@ async def start_flow(
         execution.started_at = datetime.now(timezone.utc)
         
         db.commit()
+        db.refresh(execution)
         
-        # TODO: Trigger actual workflow execution here
-        # For now, just update the status
+        # Trigger actual workflow execution in background
+        import asyncio
+        from services.workflow_executor import execute_workflow_async
         
-        logger.info(f"Started flow {flow_id}")
+        # Create background task to execute the workflow
+        asyncio.create_task(execute_workflow_async(execution.id, db))
         
-        return {"message": "Flow started successfully"}
+        logger.info(f"Started flow {flow_id} - workflow execution triggered")
+        
+        return {
+            "message": "Flow started successfully",
+            "flow_id": flow_id,
+            "status": execution.flow_status
+        }
         
     except Exception as e:
         logger.error(f"Error starting flow {flow_id}: {str(e)}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to start flow")
+        raise HTTPException(status_code=500, detail=f"Failed to start flow: {str(e)}")
 
 
 @router.post("/flows/{flow_id}/reviews/{step_id}/approve")
