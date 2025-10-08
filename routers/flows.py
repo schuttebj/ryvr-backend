@@ -473,3 +473,212 @@ async def get_template_preview(
     except Exception as e:
         logger.error(f"Error getting template preview: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get template preview")
+
+
+# =============================================================================
+# OPTIONS SELECTION ENDPOINTS
+# =============================================================================
+
+@router.post("/flows/{flow_id}/select-options")
+async def submit_options_selection(
+    flow_id: int,
+    step_id: str,
+    selection: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Submit options selection for a flow waiting for input"""
+    try:
+        from services.flow_control_service import get_flow_control_service
+        
+        # Get execution
+        execution = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.id == flow_id
+        ).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        
+        # Verify business access
+        # TODO: Add proper permission checking
+        
+        # Verify flow is waiting for input
+        if execution.flow_status != 'input_required':
+            raise HTTPException(
+                status_code=400,
+                detail=f"Flow is not waiting for input (current status: {execution.flow_status})"
+            )
+        
+        # Process selection
+        flow_control = get_flow_control_service(db)
+        result = await flow_control.process_options_selection(
+            execution_id=flow_id,
+            step_id=step_id,
+            selected_options=selection.get('selected_options', []),
+            user_id=current_user.id
+        )
+        
+        return {
+            "success": True,
+            "message": "Options selection submitted successfully",
+            "flow_id": flow_id,
+            "step_id": step_id,
+            "result": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting options selection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit options selection: {str(e)}")
+
+
+@router.get("/flows/{flow_id}/options/{step_id}")
+async def get_flow_options_data(
+    flow_id: int,
+    step_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get available options for a flow waiting for selection"""
+    try:
+        # Get options selection record
+        options_selection = db.query(models.FlowOptionsSelection).filter(
+            and_(
+                models.FlowOptionsSelection.execution_id == flow_id,
+                models.FlowOptionsSelection.step_id == step_id,
+                models.FlowOptionsSelection.selected_at.is_(None)
+            )
+        ).first()
+        
+        if not options_selection:
+            raise HTTPException(status_code=404, detail="Options selection not found or already completed")
+        
+        return {
+            "success": True,
+            "flow_id": flow_id,
+            "step_id": step_id,
+            "available_options": options_selection.available_options,
+            "selection_mode": options_selection.selection_mode
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting flow options: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get flow options")
+
+
+# =============================================================================
+# REVIEW WITH EDITS ENDPOINTS
+# =============================================================================
+
+@router.post("/flows/{flow_id}/review/{step_id}/approve-with-edits")
+async def approve_review_with_edits(
+    flow_id: int,
+    step_id: str,
+    approval: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Approve or reject review with optional edits to previous steps"""
+    try:
+        from services.flow_control_service import get_flow_control_service
+        
+        # Get execution
+        execution = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.id == flow_id
+        ).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        
+        # Verify flow is in review status
+        if execution.flow_status != 'in_review':
+            raise HTTPException(
+                status_code=400,
+                detail=f"Flow is not in review (current status: {execution.flow_status})"
+            )
+        
+        # Process review approval
+        flow_control = get_flow_control_service(db)
+        result = await flow_control.process_review_approval(
+            execution_id=flow_id,
+            step_id=step_id,
+            approval_data=approval,
+            user_id=current_user.id
+        )
+        
+        return {
+            "success": True,
+            "message": "Review processed successfully",
+            "flow_id": flow_id,
+            "step_id": step_id,
+            "approved": approval.get('approved', False),
+            "result": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing review: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process review: {str(e)}")
+
+
+@router.get("/flows/{flow_id}/editable-data")
+async def get_editable_data(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get editable data from previous steps for review editing"""
+    try:
+        # Get execution
+        execution = db.query(models.WorkflowExecution).filter(
+            models.WorkflowExecution.id == flow_id
+        ).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        
+        # Get pending review to find editable nodes
+        review = db.query(models.FlowReviewApproval).filter(
+            and_(
+                models.FlowReviewApproval.execution_id == flow_id,
+                models.FlowReviewApproval.reviewed_at.is_(None)
+            )
+        ).first()
+        
+        if not review:
+            raise HTTPException(status_code=404, detail="No pending review found")
+        
+        # Get step executions for the workflow
+        step_executions = db.query(models.WorkflowStepExecution).filter(
+            models.WorkflowStepExecution.execution_id == flow_id
+        ).order_by(models.WorkflowStepExecution.created_at).all()
+        
+        # Build editable data structure
+        editable_steps = []
+        for step_exec in step_executions:
+            if step_exec.status == 'completed' and step_exec.output_data:
+                editable_steps.append({
+                    "step_id": step_exec.step_id,
+                    "step_name": step_exec.step_name,
+                    "step_type": step_exec.step_type,
+                    "output_data": step_exec.output_data,
+                    "input_data": step_exec.input_data,
+                    "editable_fields": step_exec.editable_fields or []
+                })
+        
+        return {
+            "success": True,
+            "flow_id": flow_id,
+            "editable_steps": editable_steps,
+            "runtime_state": execution.runtime_state or {}
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting editable data: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get editable data")

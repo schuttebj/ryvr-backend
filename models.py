@@ -489,11 +489,12 @@ class WorkflowExecution(Base):
     step_executions = relationship("WorkflowStepExecution", back_populates="execution")
     api_calls = relationship("APICall", back_populates="execution")
     review_approvals = relationship("FlowReviewApproval", back_populates="execution")
+    options_selections = relationship("FlowOptionsSelection", back_populates="execution")
     
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'paused')", name='check_execution_status'),
         CheckConstraint("execution_mode IN ('simulate', 'record', 'live')", name='check_execution_mode'),
-        CheckConstraint("flow_status IN ('new', 'scheduled', 'in_progress', 'in_review', 'complete', 'error')", name='check_flow_status'),
+        CheckConstraint("flow_status IN ('new', 'scheduled', 'in_progress', 'in_review', 'input_required', 'complete', 'error')", name='check_flow_status'),
     )
 
 class WorkflowStepExecution(Base):
@@ -530,6 +531,12 @@ class WorkflowStepExecution(Base):
     async_complete_time = Column(DateTime(timezone=True), nullable=True)
     polling_count = Column(Integer, default=0)
     
+    # Review and rerun tracking
+    editable_fields = Column(JSON, default=list)  # Fields that can be edited during review
+    rerun_count = Column(Integer, default=0)  # How many times this step was rerun
+    parent_execution_id = Column(Integer, ForeignKey("workflow_step_executions.id"), nullable=True)  # If this is a rerun
+    modified_input_data = Column(JSON, nullable=True)  # Input data that was modified during review
+    
     # Timestamps
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
@@ -537,10 +544,11 @@ class WorkflowStepExecution(Base):
     
     # Relationships
     execution = relationship("WorkflowExecution", back_populates="step_executions")
+    parent_execution = relationship("WorkflowStepExecution", remote_side=[id], foreign_keys=[parent_execution_id])
     
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed', 'skipped')", name='check_step_status'),
-        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task', 'review')", name='check_step_type'),
+        CheckConstraint("step_type IN ('task', 'ai', 'transform', 'foreach', 'gate', 'condition', 'async_task', 'review', 'options', 'conditional')", name='check_step_type'),
     )
 
 class FlowReviewApproval(Base):
@@ -557,6 +565,11 @@ class FlowReviewApproval(Base):
     approved = Column(Boolean, nullable=False)
     comments = Column(Text, nullable=True)
     
+    # Editing and rerun tracking
+    edited_steps = Column(JSON, default=list)  # List of step_ids that were edited
+    edited_data = Column(JSON, default=dict)   # Modified data for edited steps
+    rerun_steps = Column(JSON, default=list)   # Steps that need to be rerun
+    
     # Timestamps
     submitted_for_review_at = Column(DateTime(timezone=True), nullable=False)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
@@ -568,6 +581,32 @@ class FlowReviewApproval(Base):
     
     __table_args__ = (
         CheckConstraint("reviewer_type IN ('agency', 'client', 'admin')", name='check_reviewer_type'),
+    )
+
+class FlowOptionsSelection(Base):
+    """Options selection tracking for flow management"""
+    __tablename__ = "flow_options_selections"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    execution_id = Column(Integer, ForeignKey("workflow_executions.id"), nullable=False)
+    step_id = Column(String(100), nullable=False)  # Step ID from workflow
+    
+    # Options data
+    available_options = Column(JSON, nullable=False)  # All options presented
+    selected_options = Column(JSON, nullable=False)   # Options selected by user
+    selection_mode = Column(String(20), nullable=False)  # 'single', 'multiple'
+    
+    # User who made selection
+    selected_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    selected_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    execution = relationship("WorkflowExecution")
+    user = relationship("User")
+    
+    __table_args__ = (
+        CheckConstraint("selection_mode IN ('single', 'multiple')", name='check_selection_mode'),
     )
 
 # =============================================================================

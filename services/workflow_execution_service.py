@@ -53,6 +53,12 @@ class WorkflowExecutionService:
                 result = await self._execute_ai_node(node_config, input_data)
             elif node_type == 'content_extract':
                 result = await self._execute_content_extract_node(node_config, input_data)
+            elif node_type == 'review':
+                result = await self._execute_review_node(node_config, input_data)
+            elif node_type == 'options':
+                result = await self._execute_options_node(node_config, input_data)
+            elif node_type == 'conditional':
+                result = await self._execute_conditional_node(node_config, input_data)
             else:
                 raise ValueError(f"Unsupported node type: {node_type}")
             
@@ -517,6 +523,101 @@ class WorkflowExecutionService:
         """Clear all stored node execution results"""
         self.node_execution_results.clear()
         logger.info("Cleared all node execution results")
+    
+    async def _execute_review_node(self, config: Dict[str, Any], input_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Execute review node - pauses workflow for human review
+        Note: Actual pausing is handled by FlowControlService in the workflow execution flow
+        """
+        try:
+            # Review node returns a marker that indicates workflow should pause
+            return {
+                'processed': {
+                    'action': 'pause_for_review',
+                    'reviewer_type': config.get('reviewerType', 'agency'),
+                    'editable_nodes': config.get('editableNodes', []),
+                    'editable_fields': config.get('editableFields', {}),
+                    'approved_path': config.get('approvedPath'),
+                    'declined_path': config.get('declinedPath')
+                },
+                'raw': config,
+                'summary': {
+                    'node_type': 'review',
+                    'reviewer_type': config.get('reviewerType', 'agency'),
+                    'editable_count': len(config.get('editableNodes', []))
+                },
+                'credits_used': 0
+            }
+        except Exception as e:
+            logger.error(f"Review node execution failed: {e}")
+            raise
+    
+    async def _execute_options_node(self, config: Dict[str, Any], input_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Execute options node - pauses workflow for user option selection
+        Note: Actual pausing is handled by FlowControlService in the workflow execution flow
+        """
+        try:
+            # Extract available options from input data
+            data_source = config.get('dataSource', '')
+            available_options = self._extract_data_by_path(input_data, data_source) if input_data else []
+            
+            if not isinstance(available_options, list):
+                if isinstance(available_options, dict):
+                    available_options = [available_options]
+                else:
+                    available_options = []
+            
+            # Options node returns a marker that indicates workflow should pause
+            return {
+                'processed': {
+                    'action': 'pause_for_options',
+                    'available_options': available_options,
+                    'selection_mode': config.get('selectionMode', 'single'),
+                    'option_label_field': config.get('optionLabelField'),
+                    'option_value_field': config.get('optionValueField'),
+                    'output_variable': config.get('outputVariable', 'selected_options')
+                },
+                'raw': config,
+                'summary': {
+                    'node_type': 'options',
+                    'options_count': len(available_options),
+                    'selection_mode': config.get('selectionMode', 'single')
+                },
+                'credits_used': 0
+            }
+        except Exception as e:
+            logger.error(f"Options node execution failed: {e}")
+            raise
+    
+    async def _execute_conditional_node(self, config: Dict[str, Any], input_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Execute conditional node - evaluates conditions and determines path
+        Note: Path determination is handled by FlowControlService
+        """
+        try:
+            conditions = config.get('conditions', [])
+            
+            # Conditional node returns conditions for evaluation
+            return {
+                'processed': {
+                    'action': 'evaluate_conditional',
+                    'conditions': conditions,
+                    'true_path': config.get('truePath'),
+                    'false_path': config.get('falsePath')
+                },
+                'raw': config,
+                'summary': {
+                    'node_type': 'conditional',
+                    'conditions_count': len(conditions),
+                    'has_true_path': bool(config.get('truePath')),
+                    'has_false_path': bool(config.get('falsePath'))
+                },
+                'credits_used': 0
+            }
+        except Exception as e:
+            logger.error(f"Conditional node execution failed: {e}")
+            raise
 
 
 # Global service instance
