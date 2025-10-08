@@ -193,7 +193,7 @@ def get_user_role_in_agency(db: Session, user: models.User, agency_id: int) -> O
     return membership.role if membership else None
 
 def get_user_role_in_business(db: Session, user: models.User, business_id: int) -> Optional[str]:
-    """Get user's role in a specific business."""
+    """Get user's role in a specific business (agency access removed)."""
     if user.role == "admin":
         return "admin"
     
@@ -207,12 +207,10 @@ def get_user_role_in_business(db: Session, user: models.User, business_id: int) 
     if membership:
         return membership.role
     
-    # Check agency access to business
+    # Check if user is the business owner
     business = db.query(models.Business).filter(models.Business.id == business_id).first()
-    if business:
-        agency_role = get_user_role_in_agency(db, user, business.agency_id)
-        if agency_role:
-            return agency_role
+    if business and business.owner_id == user.id:
+        return "owner"
     
     return None
 

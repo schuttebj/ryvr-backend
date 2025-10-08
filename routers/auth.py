@@ -388,7 +388,7 @@ async def switch_business_context(
             detail="Access to this business is not allowed"
         )
     
-    # Get business and agency
+    # Get business
     business = db.query(models.Business).filter(
         models.Business.id == request.business_id
     ).first()
@@ -399,14 +399,20 @@ async def switch_business_context(
             detail="Business not found"
         )
     
-    # Create new token with updated context
-    access_token = create_login_token(current_user, business.agency_id, business.id)
+    # Verify user owns this business or has access to it
+    if business.owner_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Access to this business denied"
+        )
+    
+    # Create new token with updated context (no agency_id needed)
+    access_token = create_login_token(current_user, None, business.id)
     
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user": current_user,
-        "agency_id": business.agency_id,
         "business_id": business.id
     }
 

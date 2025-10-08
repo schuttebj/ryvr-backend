@@ -59,27 +59,7 @@ class IntegrationService:
                 "credentials_required": False
             })
         
-        # 2. Agency-level integrations
-        agency_integrations = self.db.query(models.AgencyIntegration).filter(
-            models.AgencyIntegration.agency_id == business.agency_id,
-            models.AgencyIntegration.is_active == True
-        ).all()
-        
-        for agency_integration in agency_integrations:
-            integration = agency_integration.integration
-            available.append({
-                "id": integration.id,
-                "name": integration.name,
-                "provider": integration.provider,
-                "type": "agency",
-                "level": integration.level,
-                "config_schema": integration.config_schema,
-                "configured": True,
-                "credentials_required": False,
-                "agency_integration_id": agency_integration.id
-            })
-        
-        # 3. Business-level integrations
+        # 2. Business-level integrations (agency-level integrations deprecated)
         business_integrations = self.db.query(models.BusinessIntegration).filter(
             models.BusinessIntegration.business_id == business_id,
             models.BusinessIntegration.is_active == True
@@ -204,25 +184,7 @@ class IntegrationService:
                 **business_integration.custom_config
             }
         
-        # 2. Try agency-level integration
-        agency_integration = self.db.query(models.AgencyIntegration).join(
-            models.Integration
-        ).filter(
-            models.AgencyIntegration.agency_id == business.agency_id,
-            models.Integration.provider == integration_name.lower(),
-            models.AgencyIntegration.is_active == True
-        ).first()
-        
-        if agency_integration and agency_integration.credentials:
-            return {
-                "provider": agency_integration.integration.provider,
-                "level": "agency",
-                "integration_id": agency_integration.integration.id,
-                **agency_integration.credentials,
-                **agency_integration.custom_config
-            }
-        
-        # 3. Try system-level integration (from environment/config)
+        # 2. Try system-level integration (from environment/config) (agency-level integrations deprecated)
         system_integration = self.db.query(models.Integration).filter(
             models.Integration.provider == integration_name.lower(),
             models.Integration.integration_type == "system",

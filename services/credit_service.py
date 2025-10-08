@@ -23,24 +23,21 @@ class CreditService:
     # CREDIT POOL MANAGEMENT
     # =============================================================================
     
-    def get_credit_pool(self, owner_id: int, owner_type: str) -> Optional[models.CreditPool]:
-        """Get credit pool for owner (agency or user)"""
+    def get_credit_pool(self, user_id: int) -> Optional[models.CreditPool]:
+        """Get credit pool for user"""
         return self.db.query(models.CreditPool).filter(
-            models.CreditPool.owner_id == owner_id,
-            models.CreditPool.owner_type == owner_type
+            models.CreditPool.owner_id == user_id
         ).first()
     
     def create_credit_pool(
         self, 
-        owner_id: int, 
-        owner_type: str, 
+        user_id: int, 
         initial_balance: int = 0,
         overage_threshold: int = 100
     ) -> models.CreditPool:
-        """Create a new credit pool"""
+        """Create a new credit pool for a user"""
         pool = models.CreditPool(
-            owner_id=owner_id,
-            owner_type=owner_type,
+            owner_id=user_id,
             balance=initial_balance,
             total_purchased=initial_balance if initial_balance > 0 else 0,
             overage_threshold=overage_threshold
@@ -61,11 +58,11 @@ class CreditService:
         
         return pool
     
-    def ensure_credit_pool(self, owner_id: int, owner_type: str) -> models.CreditPool:
-        """Ensure credit pool exists, create if not"""
-        pool = self.get_credit_pool(owner_id, owner_type)
+    def ensure_credit_pool(self, user_id: int) -> models.CreditPool:
+        """Ensure credit pool exists for user, create if not"""
+        pool = self.get_credit_pool(user_id)
         if not pool:
-            pool = self.create_credit_pool(owner_id, owner_type)
+            pool = self.create_credit_pool(user_id)
         return pool
     
     # =============================================================================
@@ -218,7 +215,7 @@ class CreditService:
     # =============================================================================
     
     def get_business_credit_pool(self, business_id: int) -> Optional[models.CreditPool]:
-        """Get credit pool for a business (through its agency)"""
+        """Get credit pool for a business (through its owner user)"""
         business = self.db.query(models.Business).filter(
             models.Business.id == business_id
         ).first()
@@ -226,7 +223,7 @@ class CreditService:
         if not business:
             return None
         
-        return self.get_credit_pool(business.agency_id, "agency")
+        return self.get_credit_pool(business.owner_id)
     
     def deduct_business_credits(
         self,
@@ -244,10 +241,10 @@ class CreditService:
         if not business:
             raise Exception("Business not found")
         
-        # Get agency credit pool
-        pool = self.get_credit_pool(business.agency_id, "agency")
+        # Get user credit pool
+        pool = self.get_credit_pool(business.owner_id)
         if not pool:
-            raise Exception("No credit pool found for business's agency")
+            raise Exception("No credit pool found for business owner")
         
         return self.deduct_credits(
             pool_id=pool.id,
@@ -262,26 +259,21 @@ class CreditService:
         self,
         business_id: int,
         required_credits: int
-    ) -> Dict[str, Any]:
-        """Check if business can use required credits"""
+    ) -> bool:
+        """Check if business can use required credits (returns boolean for simple usage)"""
         business = self.db.query(models.Business).filter(
             models.Business.id == business_id
         ).first()
         
         if not business:
-            return {
-                "available": False,
-                "error": "Business not found"
-            }
+            return False
         
-        pool = self.get_credit_pool(business.agency_id, "agency")
+        pool = self.get_credit_pool(business.owner_id)
         if not pool:
-            return {
-                "available": False,
-                "error": "No credit pool found for business's agency"
-            }
+            return False
         
-        return self.check_credit_availability(pool.id, required_credits)
+        result = self.check_credit_availability(pool.id, required_credits)
+        return result.get("available", False)
     
     # =============================================================================
     # CREDIT ANALYTICS
@@ -344,15 +336,15 @@ class CreditService:
             "transaction_count": len(transactions)
         }
     
-    def get_agency_credit_breakdown(self, agency_id: int) -> Dict[str, Any]:
-        """Get detailed credit breakdown for an agency"""
-        pool = self.get_credit_pool(agency_id, "agency")
+    def get_user_credit_breakdown(self, user_id: int) -> Dict[str, Any]:
+        """Get detailed credit breakdown for a user"""
+        pool = self.get_credit_pool(user_id)
         if not pool:
-            return {"error": "Credit pool not found for agency"}
+            return {"error": "Credit pool not found for user"}
         
-        # Get all businesses for this agency
+        # Get all businesses for this user
         businesses = self.db.query(models.Business).filter(
-            models.Business.agency_id == agency_id,
+            models.Business.owner_id == user_id,
             models.Business.is_active == True
         ).all()
         
@@ -378,7 +370,7 @@ class CreditService:
             })
         
         return {
-            "agency_id": agency_id,
+            "user_id": user_id,
             "pool": {
                 "balance": pool.balance,
                 "total_purchased": pool.total_purchased,
@@ -436,21 +428,20 @@ class CreditService:
     
     def purchase_credits(
         self,
-        owner_id: int,
-        owner_type: str,
+        user_id: int,
         credits: int,
         payment_method: str,
         payment_reference: str,
         tier_slug: str = "professional",
         created_by: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Process credit purchase"""
+        """Process credit purchase for a user"""
         try:
             # Calculate cost
             cost_info = self.calculate_credit_cost(credits, tier_slug)
             
             # Get or create credit pool
-            pool = self.ensure_credit_pool(owner_id, owner_type)
+            pool = self.ensure_credit_pool(user_id)
             
             # Add credits
             transaction = self.add_credits(

@@ -55,27 +55,27 @@ async def get_businesses(
 async def create_business(
     business: schemas.BusinessCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_agency_user)
+    current_user: models.User = Depends(get_current_active_user)
 ):
     """Create a new business."""
-    # Verify agency access
-    if not verify_agency_access(db, current_user, business.agency_id):
+    # Verify user owns this business (or is admin)
+    if business.owner_id != current_user.id and current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access to this agency denied"
+            detail="You can only create businesses for yourself"
         )
     
-    # Check if slug already exists within the agency
+    # Check if slug already exists for this owner
     if business.slug:
         existing_business = db.query(models.Business).filter(
-            models.Business.agency_id == business.agency_id,
+            models.Business.owner_id == business.owner_id,
             models.Business.slug == business.slug
         ).first()
         
         if existing_business:
             raise HTTPException(
                 status_code=400,
-                detail="Business slug already exists in this agency"
+                detail="Business slug already exists for this owner"
             )
     
     # Create business
