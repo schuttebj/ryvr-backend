@@ -755,9 +755,7 @@ async def get_tool_catalog(
 ):
     """Get available tools/integrations with dynamic field definitions"""
     try:
-        # This would eventually come from a database or config
-        # For now, let's create a comprehensive tool catalog
-        
+        # Start with hardcoded tool catalog
         tool_catalog = {
             "schema_version": "ryvr.tools.v1",
             "providers": {
@@ -940,6 +938,68 @@ async def get_tool_catalog(
                 }
             }
         }
+        
+        # Add dynamic integrations from database
+        dynamic_integrations = db.query(models.Integration).filter(
+            models.Integration.is_dynamic == True,
+            models.Integration.is_active == True
+        ).all()
+        
+        for integration in dynamic_integrations:
+            if not integration.operation_configs or not integration.operation_configs.get('operations'):
+                continue
+                
+            provider_id = integration.provider.lower().replace(' ', '_')
+            
+            # Skip if this provider already exists in hardcoded catalog
+            if provider_id in tool_catalog["providers"]:
+                continue
+                
+            # Build operations dict from operation_configs
+            operations = {}
+            for op_config in integration.operation_configs['operations']:
+                # Convert parameters to fields format
+                fields = []
+                for param in op_config.get('parameters', []):
+                    field = {
+                        "name": param['name'],
+                        "type": param['type'],
+                        "required": param['required'],
+                        "description": param.get('description', '')
+                    }
+                    if param.get('default'):
+                        field['default'] = param['default']
+                    if param['type'] == 'select' and param.get('options'):
+                        field['options'] = param['options']
+                    if not param.get('fixed', False):
+                        fields.append(field)
+                
+                # Build async config if operation is async
+                operation_data = {
+                    "name": op_config['name'],
+                    "description": op_config.get('description', ''),
+                    "is_async": op_config.get('is_async', False),
+                    "base_credits": op_config.get('base_credits', 1),
+                    "fields": fields
+                }
+                
+                if op_config.get('is_async') and op_config.get('async_config'):
+                    operation_data['async_config'] = op_config['async_config']
+                
+                operations[op_config['id']] = operation_data
+            
+            # Add to tool catalog
+            tool_catalog["providers"][provider_id] = {
+                "name": integration.name,
+                "description": integration.platform_config.get('description', f"{integration.name} integration"),
+                "category": integration.platform_config.get('category', 'other'),
+                "auth_type": integration.platform_config.get('auth_type', 'api_key'),
+                "operations": operations,
+                "is_dynamic": True,
+                "color": integration.platform_config.get('color', '#5f5eff'),
+                "icon_url": integration.platform_config.get('icon_url'),
+                "documentation_url": integration.platform_config.get('documentation_url')
+            }
         
         # Filter by provider if specified
         if provider:
