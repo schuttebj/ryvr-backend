@@ -300,7 +300,7 @@ async def create_business_integration(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Create a business integration."""
+    """Create or update a business integration (upsert)."""
     if not verify_business_access(db, current_user, business_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -317,11 +317,15 @@ async def create_business_integration(
     ).first()
     
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Integration already exists for this business"
-        )
+        # Update existing integration
+        for key, value in integration.dict(exclude_unset=True).items():
+            if key != 'id':  # Don't update ID
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
     
+    # Create new integration
     db_integration = models.BusinessIntegration(**integration.dict())
     db.add(db_integration)
     db.commit()
