@@ -1507,3 +1507,94 @@ async def test_integration_legacy(
     result = await integration_service.test_system_integration(integration, test_data)
     
     return result
+
+# =============================================================================
+# OPENAI MODELS MANAGEMENT
+# =============================================================================
+
+@router.get("/openai/models")
+async def get_openai_models(
+    refresh: bool = False,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get available OpenAI models (cached or refreshed from API)"""
+    try:
+        from services.openai_model_service import OpenAIModelService
+        
+        model_service = OpenAIModelService(db)
+        
+        # Check if refresh is needed
+        if refresh or await model_service.should_refresh_models():
+            # Try to refresh models from API
+            refresh_result = await model_service.refresh_models_from_api()
+            logger.info(f"Model refresh attempted: {refresh_result}")
+        
+        # Get models formatted for dropdown
+        models_list = await model_service.get_models_for_dropdown()
+        
+        return {
+            "success": True,
+            "models": models_list,
+            "count": len(models_list)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get OpenAI models: {e}", exc_info=True)
+        # Return fallback models even on error
+        fallback_models = [
+            {
+                "id": "gpt-4o-mini",
+                "name": "GPT-4o Mini",
+                "description": "Faster, more affordable GPT-4 variant (Recommended)",
+                "is_default": True
+            },
+            {
+                "id": "gpt-4o",
+                "name": "GPT-4o",
+                "description": "Most advanced GPT-4 model with multimodal capabilities",
+                "is_default": False
+            },
+            {
+                "id": "gpt-4-turbo",
+                "name": "GPT-4 Turbo",
+                "description": "Fast GPT-4 model with improved performance",
+                "is_default": False
+            },
+            {
+                "id": "gpt-3.5-turbo",
+                "name": "GPT-3.5 Turbo",
+                "description": "Fast and affordable model for most tasks",
+                "is_default": False
+            }
+        ]
+        
+        return {
+            "success": True,
+            "models": fallback_models,
+            "count": len(fallback_models),
+            "fallback": True,
+            "error": str(e)
+        }
+
+@router.post("/openai/models/refresh")
+async def refresh_openai_models(
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)  # Admin only
+):
+    """Manually refresh OpenAI models from API (admin only)"""
+    try:
+        from services.openai_model_service import OpenAIModelService
+        
+        model_service = OpenAIModelService(db)
+        result = await model_service.refresh_models_from_api(api_key)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to refresh OpenAI models: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to refresh models: {str(e)}"
+        )

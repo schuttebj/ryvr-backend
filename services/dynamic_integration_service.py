@@ -387,7 +387,13 @@ class DynamicIntegrationService:
         
         # Add authentication headers
         auth_config = integration.auth_config or {}
-        auth_type = auth_config.get("type", "").lower()
+        platform_config = integration.platform_config or {}
+        
+        # Auth type can be in either auth_config or platform_config
+        auth_type = auth_config.get("type") or platform_config.get("auth_type", "")
+        auth_type = auth_type.lower() if auth_type else ""
+        
+        logger.info(f"Building headers with auth_type: {auth_type}")
         
         # Get credential field names from auth_config
         credential_fields = {cred["name"]: cred for cred in auth_config.get("credentials", [])}
@@ -400,6 +406,7 @@ class DynamicIntegrationService:
             password = credentials.get(password_field, "") if password_field else credentials.get("password", "")
             auth_string = base64.b64encode(f"{username}:{password}".encode()).decode()
             headers["Authorization"] = f"Basic {auth_string}"
+            logger.info(f"Using Basic auth with username: {username_field}")
         
         elif auth_type == "bearer":
             # Find API key or token field (case-insensitive)
@@ -407,14 +414,16 @@ class DynamicIntegrationService:
             api_key = credentials.get(api_key_field, "") if api_key_field else ""
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
+                logger.info(f"Using Bearer token with field: {api_key_field}")
         
         elif auth_type == "api_key":
-            # API key in header - use the credential field name
+            # API key in custom header - use the configured header name
             api_key_field = next((name for name in credentials.keys()), None)
             api_key = credentials.get(api_key_field, "") if api_key_field else ""
-            key_name = auth_config.get("header_name", "X-API-Key")
+            header_name = auth_config.get("header_name", "X-API-Key")
             if api_key:
-                headers[key_name] = api_key
+                headers[header_name] = api_key
+                logger.info(f"Using API Key in custom header: {header_name} with field: {api_key_field}")
         
         elif auth_type == "oauth2":
             # Find access token field
@@ -422,6 +431,9 @@ class DynamicIntegrationService:
             access_token = credentials.get(access_token_field, "") if access_token_field else credentials.get("access_token", "")
             if access_token:
                 headers["Authorization"] = f"Bearer {access_token}"
+                logger.info(f"Using OAuth2 token with field: {access_token_field}")
+        else:
+            logger.warning(f"Unknown auth type: {auth_type}")
         
         return headers
     
@@ -434,15 +446,71 @@ class DynamicIntegrationService:
         
         body = {}
         
+        # Check if this is an OpenAI chat completion request
+        has_system_message = 'system_message' in parameters
+        has_user_message = 'user_message' in parameters
+        
         for param_def in param_definitions:
             if param_def.get("location") == "body":
                 param_name = param_def["name"]
+                param_type = param_def.get("type", "string")
                 
                 # Use provided value, or default if not required
                 if param_name in parameters:
-                    body[param_name] = parameters[param_name]
+                    value = parameters[param_name]
+                    
+                    # Handle special type conversions
+                    if param_type == "number" and isinstance(value, str):
+                        try:
+                            value = float(value) if '.' in value else int(value)
+                        except ValueError:
+                            pass
+                    elif param_type == "array" and isinstance(value, str):
+                        # Try to parse JSON string to array
+                        try:
+                            import json
+                            value = json.loads(value)
+                        except:
+                            # If it's not valid JSON, wrap it in an array
+                            value = [value]
+                    elif param_type == "object" and isinstance(value, str):
+                        # Try to parse JSON string to object
+                        try:
+                            import json
+                            value = json.loads(value)
+                        except:
+                            pass
+                    
+                    body[param_name] = value
                 elif not param_def.get("required", False) and "default" in param_def:
                     body[param_name] = param_def["default"]
+        
+        # Special handling for OpenAI chat completions
+        # Convert system_message and user_message to messages array
+        if has_system_message or has_user_message:
+            messages = []
+            
+            # Add system message if provided
+            if has_system_message and parameters.get('system_message'):
+                messages.append({
+                    "role": "system",
+                    "content": parameters['system_message']
+                })
+                # Remove from body since we're converting it
+                body.pop('system_message', None)
+            
+            # Add user message if provided
+            if has_user_message and parameters.get('user_message'):
+                messages.append({
+                    "role": "user",
+                    "content": parameters['user_message']
+                })
+                # Remove from body since we're converting it
+                body.pop('user_message', None)
+            
+            # Set the messages array
+            if messages:
+                body['messages'] = messages
         
         return body
     

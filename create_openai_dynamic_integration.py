@@ -76,6 +76,7 @@ def create_openai_dynamic_integration(db: Session):
                 "category": "AI",
                 "base_credits": 2,
                 "is_async": False,
+                "is_test_operation": True,  # Mark as test operation
                 "parameters": [
                     {
                         "name": "model",
@@ -88,11 +89,21 @@ def create_openai_dynamic_integration(db: Session):
                         "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
                     },
                     {
-                        "name": "messages",
-                        "type": "array",
+                        "name": "system_message",
+                        "type": "text",
+                        "required": False,
+                        "fixed": False,
+                        "default": "You are a helpful assistant.",
+                        "description": "System message to set behavior",
+                        "location": "body"
+                    },
+                    {
+                        "name": "user_message",
+                        "type": "text",
                         "required": True,
                         "fixed": False,
-                        "description": "Array of message objects with role and content",
+                        "default": "Hello, how are you?",
+                        "description": "User message to send to the model",
                         "location": "body"
                     },
                     {
