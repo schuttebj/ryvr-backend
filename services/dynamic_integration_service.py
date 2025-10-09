@@ -455,9 +455,13 @@ class DynamicIntegrationService:
                 param_name = param_def["name"]
                 param_type = param_def.get("type", "string")
                 
-                # Use provided value, or default if not required
+                # Use provided value
                 if param_name in parameters:
                     value = parameters[param_name]
+                    
+                    # Skip empty/null values for non-required parameters
+                    if not param_def.get("required", False) and (value is None or value == "" or value == []):
+                        continue
                     
                     # Handle special type conversions
                     if param_type == "number" and isinstance(value, str):
@@ -482,8 +486,10 @@ class DynamicIntegrationService:
                             pass
                     
                     body[param_name] = value
-                elif not param_def.get("required", False) and "default" in param_def:
-                    body[param_name] = param_def["default"]
+                elif param_def.get("required", False):
+                    # Only add default for REQUIRED parameters if not provided
+                    if "default" in param_def:
+                        body[param_name] = param_def["default"]
         
         # Special handling for OpenAI chat completions
         # Convert system_message and user_message to messages array
