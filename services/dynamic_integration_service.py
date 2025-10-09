@@ -362,9 +362,16 @@ class DynamicIntegrationService:
             if param_def.get("location") == "query":
                 param_name = param_def["name"]
                 if param_name in parameters:
-                    query_params[param_name] = parameters[param_name]
-                elif not param_def.get("required", False) and "default" in param_def:
-                    query_params[param_name] = param_def["default"]
+                    value = parameters[param_name]
+                    # Skip empty/null values for non-required parameters
+                    if not param_def.get("required", False) and (value is None or value == "" or value == []):
+                        continue
+                    query_params[param_name] = value
+                elif param_def.get("required", False) and "default" in param_def:
+                    # Only add default for REQUIRED parameters with non-empty defaults
+                    default_value = param_def["default"]
+                    if default_value is not None and default_value != "" and default_value != []:
+                        query_params[param_name] = default_value
         
         if query_params:
             url = f"{url}?{urlencode(query_params)}"
