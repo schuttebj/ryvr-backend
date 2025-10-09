@@ -155,7 +155,7 @@ Extract the integration configuration following the schema. Include all relevant
         return prompt
     
     def _get_response_schema(self) -> Dict[str, Any]:
-        """Get JSON schema for OpenAI structured output"""
+        """Get JSON schema for OpenAI structured output with strict mode compatibility"""
         
         return {
             "type": "object",
@@ -172,7 +172,7 @@ Extract the integration configuration following the schema. Include all relevant
                         "color": {"type": "string"},
                         "documentation_url": {"type": "string"}
                     },
-                    "required": ["name", "base_url", "auth_type"],
+                    "required": ["name", "base_url", "auth_type", "color", "documentation_url"],
                     "additionalProperties": False
                 },
                 "auth_config": {
@@ -196,7 +196,7 @@ Extract the integration configuration following the schema. Include all relevant
                                     "fixed": {"type": "boolean"},
                                     "description": {"type": "string"}
                                 },
-                                "required": ["name", "type", "required", "fixed"],
+                                "required": ["name", "type", "required", "fixed", "description"],
                                 "additionalProperties": False
                             }
                         }
@@ -232,7 +232,7 @@ Extract the integration configuration following the schema. Include all relevant
                                         },
                                         "required": {"type": "boolean"},
                                         "fixed": {"type": "boolean"},
-                                        "default": {},  # Can be any type
+                                        "default": {"type": "string"},  # Simplified to string for strict mode
                                         "description": {"type": "string"},
                                         "location": {
                                             "type": "string",
@@ -243,7 +243,7 @@ Extract the integration configuration following the schema. Include all relevant
                                             "items": {"type": "string"}
                                         }
                                     },
-                                    "required": ["name", "type", "required", "fixed", "location"],
+                                    "required": ["name", "type", "required", "fixed", "default", "description", "location", "options"],
                                     "additionalProperties": False
                                 }
                             },
@@ -261,7 +261,7 @@ Extract the integration configuration following the schema. Include all relevant
                                 }
                             }
                         },
-                        "required": ["id", "name", "endpoint", "method", "category", "parameters", "headers"],
+                        "required": ["id", "name", "description", "endpoint", "method", "category", "base_credits", "is_async", "parameters", "headers"],
                         "additionalProperties": False
                     }
                 }
