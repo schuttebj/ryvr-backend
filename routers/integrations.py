@@ -1306,7 +1306,8 @@ async def test_integration_operation(
             operation_id=operation_id,
             business_id=business_id,
             parameters=test_request.test_parameters,
-            user_id=current_user.id
+            user_id=current_user.id,
+            temp_credentials=test_request.credentials
         )
         
         return {

@@ -35,7 +35,8 @@ class DynamicIntegrationService:
         operation_id: str,
         business_id: int,
         parameters: Dict[str, Any],
-        user_id: int
+        user_id: int,
+        temp_credentials: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Execute a dynamically configured integration operation
@@ -46,6 +47,7 @@ class DynamicIntegrationService:
             business_id: Business context for credentials and credit tracking
             parameters: User-provided parameter values
             user_id: User executing the operation
+            temp_credentials: Temporary credentials for testing (not stored)
             
         Returns:
             Standardized response with success status, data, and credits used
@@ -75,12 +77,15 @@ class DynamicIntegrationService:
                 }
             
             # Get credentials
-            credentials = await self._get_credentials(integration, business_id)
-            if not credentials:
-                return {
-                    "success": False,
-                    "error": "No credentials configured for this integration"
-                }
+            if temp_credentials:
+                credentials = temp_credentials
+            else:
+                credentials = await self._get_credentials(integration, business_id)
+                if not credentials:
+                    return {
+                        "success": False,
+                        "error": "No credentials configured for this integration"
+                    }
             
             # Check and deduct credits before execution
             credits_required = operation.get("base_credits", 1)
