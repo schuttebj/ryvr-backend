@@ -640,6 +640,13 @@ class IntegrationParseRequest(BaseModel):
     documentation: str
     instructions: Optional[str] = None
 
+class IntegrationOperationParseRequest(BaseModel):
+    """Request schema for parsing a single operation from documentation"""
+    integration_id: int
+    documentation: str
+    instructions: Optional[str] = None
+
+
 class OperationParameter(BaseModel):
     """Schema for operation parameter configuration"""
     name: str

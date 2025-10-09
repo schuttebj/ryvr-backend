@@ -1116,6 +1116,104 @@ async def update_dynamic_integration(
             detail=f"Failed to update integration: {str(e)}"
         )
 
+@router.post("/builder/{integration_id}/add-operations")
+async def parse_and_add_operations(
+    integration_id: int,
+    parse_request: schemas.IntegrationOperationParseRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Parse documentation for additional operations and add them to an existing integration"""
+    try:
+        # Get integration
+        integration = db.query(models.Integration).filter(
+            models.Integration.id == integration_id
+        ).first()
+        
+        if not integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+        
+        # Get OpenAI API key
+        openai_key = None
+        openai_integration = db.query(models.Integration).filter(
+            models.Integration.name == "OpenAI",
+            models.Integration.is_active == True
+        ).first()
+        
+        if openai_integration:
+            system_integration = db.query(models.SystemIntegration).filter(
+                models.SystemIntegration.integration_id == openai_integration.id
+            ).first()
+            if system_integration:
+                openai_key = system_integration.credentials.get("api_key")
+        
+        if not openai_key:
+            raise HTTPException(
+                status_code=400,
+                detail="OpenAI API key not configured"
+            )
+        
+        # Parse just the operations from the documentation
+        from services.integration_parser_service import IntegrationParserService
+        parser = IntegrationParserService(api_key=openai_key)
+        
+        result = await parser.parse_documentation(
+            platform_name=integration.name,
+            documentation=parse_request.documentation,
+            instructions=f"{parse_request.instructions or ''}\n\nExtract only the operations from this documentation."
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to parse operations")
+            )
+        
+        # Extract operations from parsed config
+        parsed_operations = result.get("config", {}).get("operations", [])
+        
+        if not parsed_operations:
+            raise HTTPException(
+                status_code=400,
+                detail="No operations found in documentation"
+            )
+        
+        # Get existing operations
+        existing_operations = integration.operation_configs.get("operations", []) if integration.operation_configs else []
+        existing_op_ids = {op["id"] for op in existing_operations}
+        
+        # Add new operations (avoid duplicates)
+        new_operations = []
+        for op in parsed_operations:
+            if op["id"] not in existing_op_ids:
+                new_operations.append(op)
+        
+        # Update integration
+        if integration.operation_configs:
+            integration.operation_configs["operations"] = existing_operations + new_operations
+        else:
+            integration.operation_configs = {"operations": new_operations}
+        
+        db.commit()
+        db.refresh(integration)
+        
+        return {
+            "success": True,
+            "added_count": len(new_operations),
+            "skipped_count": len(parsed_operations) - len(new_operations),
+            "total_operations": len(existing_operations) + len(new_operations),
+            "new_operations": new_operations
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to parse and add operations: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to add operations: {str(e)}"
+        )
+
 @router.post("/builder/parse-docs")
 async def parse_api_documentation(
     parse_request: schemas.IntegrationParseRequest,
