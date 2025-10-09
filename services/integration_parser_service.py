@@ -97,7 +97,7 @@ class IntegrationParserService:
         return """You are an expert API integration analyst. Your task is to parse API documentation and extract structured integration configuration.
 
 Analyze the provided API documentation and extract:
-1. Platform information (base URL, authentication type, display details)
+1. Platform information (base URL, authentication type, display details, sandbox mode)
 2. Authentication configuration (credential requirements)
 3. Available API operations/endpoints
 4. For each operation:
@@ -130,6 +130,12 @@ For parameter locations:
 - "query" - In URL query string
 - "path" - In URL path (e.g., /users/{id})
 - "header" - In request headers
+
+For sandbox/testing environments:
+- Check if the API has a sandbox/test environment with a different base URL
+- Set "has_sandbox" to true if found, false otherwise
+- Extract the sandbox base URL if available (otherwise use empty string)
+- Common patterns: api.sandbox.example.com, api-sandbox.example.com, sandbox.example.com, test-api.example.com
 
 Return the extracted configuration in the specified JSON schema format."""
     
@@ -170,9 +176,11 @@ Extract the integration configuration following the schema. Include all relevant
                             "enum": ["basic", "bearer", "api_key", "oauth2"]
                         },
                         "color": {"type": "string"},
-                        "documentation_url": {"type": "string"}
+                        "documentation_url": {"type": "string"},
+                        "has_sandbox": {"type": "boolean"},
+                        "sandbox_base_url": {"type": "string"}
                     },
-                    "required": ["name", "base_url", "auth_type", "color", "documentation_url"],
+                    "required": ["name", "base_url", "auth_type", "color", "documentation_url", "has_sandbox", "sandbox_base_url"],
                     "additionalProperties": False
                 },
                 "auth_config": {

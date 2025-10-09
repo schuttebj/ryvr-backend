@@ -52,6 +52,8 @@ class DynamicIntegrationService:
         Returns:
             Standardized response with success status, data, and credits used
         """
+        credit_deducted = False
+        credits_required = 0
         try:
             # Load integration configuration
             integration = self.db.query(models.Integration).filter(
@@ -87,23 +89,28 @@ class DynamicIntegrationService:
                         "error": "No credentials configured for this integration"
                     }
             
-            # Check and deduct credits before execution
+            # Check and deduct credits before execution (skip for temp credentials in testing)
             credits_required = operation.get("base_credits", 1)
-            credit_check = await self.credit_service.check_and_deduct_credits(
-                business_id=business_id,
-                credits_required=credits_required,
-                operation_type=f"{integration.name} - {operation['name']}",
-                metadata={
-                    "integration_id": integration_id,
-                    "operation_id": operation_id
-                }
-            )
+            credit_deducted = False
             
-            if not credit_check["success"]:
-                return {
-                    "success": False,
-                    "error": f"Insufficient credits: {credit_check.get('error', 'Unknown error')}"
-                }
+            if not temp_credentials:
+                # Only check/deduct credits for real executions, not tests
+                pool = self.credit_service.get_business_credit_pool(business_id)
+                if pool:
+                    can_use = self.credit_service.check_business_credits(business_id, credits_required)
+                    if not can_use:
+                        return {
+                            "success": False,
+                            "error": f"Insufficient credits. Required: {credits_required}"
+                        }
+                    
+                    # Deduct credits
+                    self.credit_service.deduct_business_credits(
+                        business_id=business_id,
+                        amount=credits_required,
+                        description=f"{integration.name} - {operation['name']}"
+                    )
+                    credit_deducted = True
             
             # Build and execute request
             platform_config = integration.platform_config or {}
@@ -149,12 +156,14 @@ class DynamicIntegrationService:
             
         except Exception as e:
             logger.error(f"Dynamic integration execution failed: {e}", exc_info=True)
-            # Refund credits on error
-            await self.credit_service.refund_credits(
-                business_id=business_id,
-                credits_amount=operation.get("base_credits", 1),
-                reason=f"Integration execution failed: {str(e)}"
-            )
+            # Refund credits on error if they were deducted
+            if credit_deducted:
+                self.credit_service.add_credits(
+                    pool_id=self.credit_service.get_business_credit_pool(business_id).id,
+                    amount=operation.get("base_credits", 1),
+                    description=f"Refund: Integration execution failed - {str(e)}",
+                    transaction_type="refund"
+                )
             return {
                 "success": False,
                 "error": str(e),

@@ -443,6 +443,8 @@ async def reset_and_initialize_system(
             openai_integration.platform_config = {
                 "name": "OpenAI",
                 "base_url": "https://api.openai.com/v1",
+                "has_sandbox": False,
+                "sandbox_base_url": "",
                 "auth_type": "bearer",
                 "color": "#10a37f",
                 "icon_url": "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/openai/openai-original.svg",
