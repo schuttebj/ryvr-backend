@@ -389,25 +389,39 @@ class DynamicIntegrationService:
         auth_config = integration.auth_config or {}
         auth_type = auth_config.get("type", "").lower()
         
+        # Get credential field names from auth_config
+        credential_fields = {cred["name"]: cred for cred in auth_config.get("credentials", [])}
+        
         if auth_type == "basic":
-            username = credentials.get("username", "")
-            password = credentials.get("password", "")
+            # Find username and password fields
+            username_field = next((name for name, cred in credential_fields.items() if "username" in name.lower()), None)
+            password_field = next((name for name, cred in credential_fields.items() if "password" in name.lower()), None)
+            username = credentials.get(username_field, "") if username_field else credentials.get("username", "")
+            password = credentials.get(password_field, "") if password_field else credentials.get("password", "")
             auth_string = base64.b64encode(f"{username}:{password}".encode()).decode()
             headers["Authorization"] = f"Basic {auth_string}"
         
         elif auth_type == "bearer":
-            api_key = credentials.get("api_key", credentials.get("access_token", ""))
-            headers["Authorization"] = f"Bearer {api_key}"
+            # Find API key or token field (case-insensitive)
+            api_key_field = next((name for name in credentials.keys()), None)  # Use first credential field
+            api_key = credentials.get(api_key_field, "") if api_key_field else ""
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
         
         elif auth_type == "api_key":
-            # API key in header
+            # API key in header - use the credential field name
+            api_key_field = next((name for name in credentials.keys()), None)
+            api_key = credentials.get(api_key_field, "") if api_key_field else ""
             key_name = auth_config.get("header_name", "X-API-Key")
-            api_key = credentials.get("api_key", "")
-            headers[key_name] = api_key
+            if api_key:
+                headers[key_name] = api_key
         
         elif auth_type == "oauth2":
-            access_token = credentials.get("access_token", "")
-            headers["Authorization"] = f"Bearer {access_token}"
+            # Find access token field
+            access_token_field = next((name for name, cred in credential_fields.items() if "access" in name.lower() or "token" in name.lower()), None)
+            access_token = credentials.get(access_token_field, "") if access_token_field else credentials.get("access_token", "")
+            if access_token:
+                headers["Authorization"] = f"Bearer {access_token}"
         
         return headers
     

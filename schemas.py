@@ -691,6 +691,7 @@ class IntegrationOperation(BaseModel):
     category: str = "General"  # For grouping in UI
     base_credits: int = 1  # Credit cost for operation
     is_async: bool = False  # Whether operation requires polling
+    is_test_operation: bool = False  # Mark as suitable for testing with minimal params
     async_config: Optional[AsyncOperationConfig] = None
     parameters: List[OperationParameter] = []
     headers: List[OperationHeader] = []
