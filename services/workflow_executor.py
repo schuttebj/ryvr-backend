@@ -187,9 +187,17 @@ class WorkflowExecutor:
         step_id = step.get("id")
         step_name = step.get("name", step_id)
         
-        # Get the actual step type - check multiple possible locations
-        bindings = step.get("bindings", {})
-        raw_type = step.get("type") or bindings.get("type")
+        # Get the actual step type - check top-level first, then nested bindings
+        # Priority: step["type"] > step["input"]["bindings"]["type"]
+        raw_type = step.get("type")
+        
+        # If top-level type is missing or generic, try to get more specific type from bindings
+        if not raw_type or raw_type in ["email", "task", "unknown"]:
+            # Check nested structure
+            input_data = step.get("input", {})
+            bindings = input_data.get("bindings", {})
+            if bindings.get("type"):
+                raw_type = bindings.get("type")
         
         # Map specific node types to generic step types
         step_type = self._map_node_type_to_step_type(raw_type)
@@ -376,7 +384,9 @@ class WorkflowExecutor:
     
     async def _execute_ai_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an AI step"""
-        bindings = step.get("bindings", {})
+        # Extract config from nested structure
+        input_data = step.get("input", {})
+        bindings = input_data.get("bindings", step.get("bindings", {}))
         config = bindings.get("config", {})
         operation = bindings.get("type", "ai_task")
         
@@ -492,7 +502,9 @@ class WorkflowExecutor:
     
     async def _execute_seo_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an SEO analysis step"""
-        bindings = step.get("bindings", {})
+        # Extract config from nested structure
+        input_data = step.get("input", {})
+        bindings = input_data.get("bindings", step.get("bindings", {}))
         config = bindings.get("config", {})
         operation = bindings.get("type", "seo_analysis")
         
@@ -526,7 +538,9 @@ class WorkflowExecutor:
     
     async def _execute_data_extraction_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a data extraction/content extraction step"""
-        bindings = step.get("bindings", {})
+        # Extract config from nested structure
+        input_data = step.get("input", {})
+        bindings = input_data.get("bindings", step.get("bindings", {}))
         config = bindings.get("config", {})
         
         logger.info("Executing data extraction step")
