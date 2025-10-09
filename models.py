@@ -614,7 +614,7 @@ class FlowOptionsSelection(Base):
 # =============================================================================
 
 class Integration(Base):
-    """System-level integrations with V2 workflow support"""
+    """System-level integrations with V2 workflow support and dynamic configuration"""
     __tablename__ = "integrations"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -636,9 +636,15 @@ class Integration(Base):
     
     # V2 Workflow support
     provider_id = Column(String(50), nullable=True)     # Maps to tool catalog provider.id
-    operation_configs = Column(JSON, default=dict)      # Available operations with schemas
+    operation_configs = Column(JSON, default=dict)      # Available operations with schemas - NOW STORES FULL DYNAMIC CONFIG
     credit_multiplier = Column(Float, default=1.0)      # Cost adjustment factor
     tier_restrictions = Column(JSON, default=list)      # Which tiers can use this integration
+    
+    # Dynamic Integration Builder fields
+    is_dynamic = Column(Boolean, default=False)  # True if configured via Integration Builder
+    platform_config = Column(JSON, nullable=True)  # Platform-level config: {name, base_url, auth_type, color, icon_url}
+    auth_config = Column(JSON, nullable=True)  # Authentication configuration and credential field definitions
+    oauth_config = Column(JSON, nullable=True)  # OAuth 2.0 specific configuration
     
     # Universal async support
     is_async_capable = Column(Boolean, default=False)   # Supports async operations

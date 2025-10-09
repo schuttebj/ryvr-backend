@@ -360,15 +360,66 @@ class WorkflowExecutor:
         
         logger.info(f"Executing API call: {connection_id}.{operation}")
         
-        # For now, return mock success
-        # TODO: Integrate with actual integration service
-        return {
-            "success": True,
-            "connection_id": connection_id,
-            "operation": operation,
-            "result": {"message": "API call executed (mock)"},
-            "credits_used": 1
-        }
+        # Check if this is a dynamic integration
+        # connection_id format: "integration_name" or "integration_name.operation_id"
+        try:
+            # Get integration by provider/name
+            parts = connection_id.split(".")
+            integration_name = parts[0] if parts else connection_id
+            operation_id = operation or (parts[1] if len(parts) > 1 else None)
+            
+            integration = self.db.query(models.Integration).filter(
+                models.Integration.provider == integration_name,
+                models.Integration.is_active == True
+            ).first()
+            
+            if not integration:
+                # Try by name
+                integration = self.db.query(models.Integration).filter(
+                    models.Integration.name == integration_name,
+                    models.Integration.is_active == True
+                ).first()
+            
+            if integration and integration.is_dynamic and operation_id:
+                # Use dynamic integration service
+                from services.dynamic_integration_service import DynamicIntegrationService
+                
+                dynamic_service = DynamicIntegrationService(self.db)
+                
+                # Extract parameters from step configuration
+                parameters = step.get("config", {})
+                
+                # Execute the operation
+                result = await dynamic_service.execute_operation(
+                    integration_id=integration.id,
+                    operation_id=operation_id,
+                    business_id=execution.business_id,
+                    parameters=parameters,
+                    user_id=execution.template.user_id if execution.template else 1
+                )
+                
+                return result
+            else:
+                # Fall back to legacy integration service
+                result = await self.integration_service.execute_integration(
+                    integration_name=connection_id,
+                    business_id=execution.business_id,
+                    node_config=step.get("config", {}),
+                    input_data=step.get("input", {}),
+                    user_id=execution.template.user_id if execution.template else 1
+                )
+                
+                return result
+                
+        except Exception as e:
+            logger.error(f"API call execution failed: {e}", exc_info=True)
+            return {
+                "success": False,
+                "connection_id": connection_id,
+                "operation": operation,
+                "error": str(e),
+                "credits_used": 0
+            }
     
     async def _execute_task_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a task step"""

@@ -1013,6 +1013,379 @@ async def get_wordpress_integration_status(
         )
 
 # =============================================================================
+# DYNAMIC INTEGRATION BUILDER ENDPOINTS
+# =============================================================================
+
+@router.post("/builder/create")
+async def create_dynamic_integration(
+    integration_data: schemas.IntegrationBuilderCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Create a new integration via Integration Builder (admin only)"""
+    try:
+        # Create integration record
+        db_integration = models.Integration(
+            name=integration_data.name,
+            provider=integration_data.provider.lower().replace(" ", "_"),
+            integration_type=integration_data.integration_type,
+            level=integration_data.level,
+            is_system_wide=integration_data.is_system_wide,
+            requires_user_config=integration_data.requires_user_config,
+            is_dynamic=True,  # Mark as dynamically configured
+            platform_config=integration_data.platform_config,
+            auth_config=integration_data.auth_config,
+            oauth_config=integration_data.oauth_config,
+            operation_configs={"operations": [op.dict() for op in integration_data.operations]},
+            is_active=True
+        )
+        
+        db.add(db_integration)
+        db.commit()
+        db.refresh(db_integration)
+        
+        logger.info(f"Created dynamic integration: {integration_data.name} (ID: {db_integration.id})")
+        
+        return {
+            "success": True,
+            "integration_id": db_integration.id,
+            "message": f"Integration '{integration_data.name}' created successfully",
+            "integration": db_integration
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create dynamic integration: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create integration: {str(e)}"
+        )
+
+@router.put("/builder/{integration_id}")
+async def update_dynamic_integration(
+    integration_id: int,
+    integration_data: schemas.IntegrationBuilderUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Update an integration via Integration Builder (admin only)"""
+    try:
+        db_integration = db.query(models.Integration).filter(
+            models.Integration.id == integration_id
+        ).first()
+        
+        if not db_integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+        
+        # Update fields
+        if integration_data.name:
+            db_integration.name = integration_data.name
+        if integration_data.platform_config:
+            db_integration.platform_config = integration_data.platform_config
+        if integration_data.auth_config:
+            db_integration.auth_config = integration_data.auth_config
+        if integration_data.oauth_config:
+            db_integration.oauth_config = integration_data.oauth_config
+        if integration_data.operations:
+            db_integration.operation_configs = {"operations": [op.dict() for op in integration_data.operations]}
+        if integration_data.is_system_wide is not None:
+            db_integration.is_system_wide = integration_data.is_system_wide
+        if integration_data.requires_user_config is not None:
+            db_integration.requires_user_config = integration_data.requires_user_config
+        if integration_data.is_active is not None:
+            db_integration.is_active = integration_data.is_active
+        
+        db_integration.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(db_integration)
+        
+        logger.info(f"Updated dynamic integration: {db_integration.name} (ID: {integration_id})")
+        
+        return {
+            "success": True,
+            "integration_id": integration_id,
+            "message": f"Integration '{db_integration.name}' updated successfully",
+            "integration": db_integration
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update dynamic integration: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update integration: {str(e)}"
+        )
+
+@router.post("/builder/parse-docs")
+async def parse_api_documentation(
+    parse_request: schemas.IntegrationParseRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Parse API documentation using AI (admin only)"""
+    try:
+        from services.integration_parser_service import IntegrationParserService
+        
+        # Get OpenAI API key from system integration
+        openai_key = None
+        openai_integration = db.query(models.Integration).filter(
+            models.Integration.name == "OpenAI",
+            models.Integration.is_active == True
+        ).first()
+        
+        if openai_integration:
+            system_integration = db.query(models.SystemIntegration).filter(
+                models.SystemIntegration.integration_id == openai_integration.id
+            ).first()
+            if system_integration:
+                openai_key = system_integration.credentials.get("api_key")
+        
+        if not openai_key:
+            raise HTTPException(
+                status_code=400,
+                detail="OpenAI API key not configured. Please configure OpenAI system integration first."
+            )
+        
+        # Parse documentation
+        parser = IntegrationParserService(api_key=openai_key)
+        result = await parser.parse_documentation(
+            platform_name=parse_request.platform_name,
+            documentation=parse_request.documentation,
+            instructions=parse_request.instructions
+        )
+        
+        if not result.get("success"):
+            return result
+        
+        # Validate parsed config
+        config = result["config"]
+        validation = parser.validate_parsed_config(config)
+        
+        return {
+            "success": True,
+            "config": config,
+            "validation": validation,
+            "tokens_used": result.get("tokens_used", 0)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to parse documentation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to parse documentation: {str(e)}"
+        )
+
+@router.post("/builder/{integration_id}/operations/{operation_id}/test")
+async def test_integration_operation(
+    integration_id: int,
+    operation_id: str,
+    test_request: schemas.IntegrationOperationTest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """Test a specific integration operation with live API call (admin only)"""
+    try:
+        from services.dynamic_integration_service import DynamicIntegrationService
+        
+        # Use business_id from request or default to first business
+        business_id = test_request.business_id
+        if not business_id:
+            # Get first business for testing
+            business = db.query(models.Business).first()
+            if not business:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No business found for testing. Please specify business_id."
+                )
+            business_id = business.id
+        
+        # Execute operation
+        service = DynamicIntegrationService(db)
+        result = await service.execute_operation(
+            integration_id=integration_id,
+            operation_id=operation_id,
+            business_id=business_id,
+            parameters=test_request.test_parameters,
+            user_id=current_user.id
+        )
+        
+        return {
+            "success": result.get("success", False),
+            "data": result.get("data", {}),
+            "raw_response": result.get("raw_response", {}),
+            "error": result.get("error"),
+            "credits_used": result.get("credits_used", 0)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to test operation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to test operation: {str(e)}"
+        )
+
+@router.get("/{integration_id}/operations")
+async def get_integration_operations(
+    integration_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get all operations for an integration (for workflow builder)"""
+    try:
+        integration = db.query(models.Integration).filter(
+            models.Integration.id == integration_id,
+            models.Integration.is_active == True
+        ).first()
+        
+        if not integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+        
+        operations = integration.operation_configs.get("operations", [])
+        
+        return {
+            "integration_id": integration_id,
+            "integration_name": integration.name,
+            "platform_config": integration.platform_config,
+            "auth_config": integration.auth_config,
+            "operations": operations
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get operations: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get operations: {str(e)}"
+        )
+
+# =============================================================================
+# OAUTH ENDPOINTS
+# =============================================================================
+
+@router.get("/oauth/authorize/{integration_id}")
+async def start_oauth_flow(
+    integration_id: int,
+    business_id: int,
+    redirect_uri: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Start OAuth authorization flow"""
+    try:
+        from services.oauth_service import OAuthService
+        
+        # Verify business access
+        if not verify_business_access(db, current_user, business_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access to this business denied"
+            )
+        
+        oauth_service = OAuthService(db)
+        result = oauth_service.generate_authorization_url(
+            integration_id=integration_id,
+            business_id=business_id,
+            redirect_uri=redirect_uri,
+            user_id=current_user.id
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start OAuth flow: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start OAuth flow: {str(e)}"
+        )
+
+@router.get("/oauth/callback")
+async def oauth_callback(
+    code: str,
+    state: str,
+    db: Session = Depends(get_db)
+):
+    """Handle OAuth callback (no auth required as this is callback from provider)"""
+    try:
+        from services.oauth_service import OAuthService
+        
+        # Get redirect URI from environment or config
+        from config import settings
+        backend_url = getattr(settings, 'backend_url', 'http://localhost:8000')
+        redirect_uri = f"{backend_url}/api/v1/integrations/oauth/callback"
+        
+        oauth_service = OAuthService(db)
+        result = await oauth_service.handle_callback(
+            code=code,
+            state=state,
+            redirect_uri=redirect_uri
+        )
+        
+        if result.get("success"):
+            # Redirect to frontend success page
+            frontend_url = getattr(settings, 'frontend_url', 'http://localhost:5173')
+            return {
+                "success": True,
+                "message": f"Successfully connected {result.get('integration_name')}",
+                "redirect_url": f"{frontend_url}/integrations?success=true&integration={result.get('integration_name')}"
+            }
+        else:
+            return result
+        
+    except Exception as e:
+        logger.error(f"OAuth callback failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"OAuth callback failed: {str(e)}"
+        )
+
+@router.post("/business/{business_id}/oauth/disconnect/{integration_id}")
+async def disconnect_oauth_integration(
+    business_id: int,
+    integration_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Disconnect OAuth integration"""
+    try:
+        if not verify_business_access(db, current_user, business_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access to this business denied"
+            )
+        
+        from services.oauth_service import OAuthService
+        
+        oauth_service = OAuthService(db)
+        success = oauth_service.disconnect_integration(business_id, integration_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": "Integration disconnected successfully"
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Integration not found or already disconnected"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to disconnect integration: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to disconnect integration: {str(e)}"
+        )
+
+# =============================================================================
 # PRESERVED FUNCTIONALITY - LEGACY ENDPOINTS
 # =============================================================================
 

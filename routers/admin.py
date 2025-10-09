@@ -424,7 +424,163 @@ async def reset_and_initialize_system(
         for int_data in integrations:
             integration = models.Integration(**int_data)
             db.add(integration)
+        db.flush()  # Ensure integrations have IDs
         results.append("Created 4 integrations with proper level separation: System (OpenAI, DataForSEO), Account (Google Analytics), Business (WordPress)")
+        
+        # Create OpenAI Dynamic Integration
+        logger.info("Creating OpenAI as dynamic integration...")
+        openai_integration = db.query(models.Integration).filter(
+            models.Integration.provider == "openai"
+        ).first()
+        
+        if openai_integration:
+            # Configure as dynamic integration
+            openai_integration.is_dynamic = True
+            openai_integration.is_system_wide = True
+            openai_integration.requires_user_config = True
+            
+            # Platform configuration
+            openai_integration.platform_config = {
+                "name": "OpenAI",
+                "base_url": "https://api.openai.com/v1",
+                "auth_type": "bearer",
+                "color": "#10a37f",
+                "icon_url": "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/openai/openai-original.svg",
+                "documentation_url": "https://platform.openai.com/docs/api-reference"
+            }
+            
+            # Authentication configuration
+            openai_integration.auth_config = {
+                "type": "bearer",
+                "credentials": [
+                    {
+                        "name": "api_key",
+                        "type": "password",
+                        "required": True,
+                        "fixed": False,
+                        "description": "OpenAI API Key"
+                    }
+                ]
+            }
+            
+            # Operations configuration
+            openai_integration.operation_configs = {
+                "operations": [
+                    {
+                        "id": "chat_completions",
+                        "name": "Chat Completion",
+                        "description": "Generate text using OpenAI chat models",
+                        "endpoint": "/chat/completions",
+                        "method": "POST",
+                        "category": "AI",
+                        "base_credits": 2,
+                        "is_async": False,
+                        "parameters": [
+                            {
+                                "name": "model",
+                                "type": "select",
+                                "required": True,
+                                "fixed": False,
+                                "default": "gpt-4o-mini",
+                                "description": "Model to use for completion",
+                                "location": "body",
+                                "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+                            },
+                            {
+                                "name": "messages",
+                                "type": "array",
+                                "required": True,
+                                "fixed": False,
+                                "description": "Array of message objects with role and content",
+                                "location": "body"
+                            },
+                            {
+                                "name": "temperature",
+                                "type": "number",
+                                "required": False,
+                                "fixed": False,
+                                "default": 0.7,
+                                "description": "Sampling temperature between 0 and 2",
+                                "location": "body"
+                            },
+                            {
+                                "name": "max_tokens",
+                                "type": "number",
+                                "required": False,
+                                "fixed": False,
+                                "description": "Maximum tokens to generate",
+                                "location": "body"
+                            },
+                            {
+                                "name": "response_format",
+                                "type": "object",
+                                "required": False,
+                                "fixed": False,
+                                "description": "Format for the response (e.g., JSON mode)",
+                                "location": "body"
+                            }
+                        ],
+                        "headers": [
+                            {
+                                "name": "Content-Type",
+                                "value": "application/json",
+                                "fixed": True
+                            }
+                        ],
+                        "response_mapping": {
+                            "success_field": None,
+                            "success_value": None,
+                            "data_field": "choices[0].message.content",
+                            "error_field": "error.message"
+                        }
+                    },
+                    {
+                        "id": "embeddings",
+                        "name": "Create Embeddings",
+                        "description": "Create vector embeddings for text",
+                        "endpoint": "/embeddings",
+                        "method": "POST",
+                        "category": "AI",
+                        "base_credits": 1,
+                        "is_async": False,
+                        "parameters": [
+                            {
+                                "name": "model",
+                                "type": "select",
+                                "required": True,
+                                "fixed": False,
+                                "default": "text-embedding-3-small",
+                                "description": "Embedding model to use",
+                                "location": "body",
+                                "options": ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
+                            },
+                            {
+                                "name": "input",
+                                "type": "string",
+                                "required": True,
+                                "fixed": False,
+                                "description": "Text to create embeddings for",
+                                "location": "body"
+                            }
+                        ],
+                        "headers": [
+                            {
+                                "name": "Content-Type",
+                                "value": "application/json",
+                                "fixed": True
+                            }
+                        ],
+                        "response_mapping": {
+                            "success_field": None,
+                            "success_value": None,
+                            "data_field": "data[0].embedding",
+                            "error_field": "error.message"
+                        }
+                    }
+                ]
+            }
+            
+            results.append("✅ Configured OpenAI as dynamic integration with 2 operations (chat_completions, embeddings)")
         
         # Create V2 workflow templates
         logger.info("Creating V2 workflow templates...")
@@ -636,10 +792,17 @@ async def reset_and_initialize_system(
             },
             "system_ready": {
                 "subscription_tiers": ["Starter ($29/mo)", "Professional ($99/mo)", "Enterprise ($299/mo)"],
-                "integrations": ["DataForSEO (sandbox ready)", "OpenAI (requires API key)", "System integrations table ready"],
-                "workflow_templates": ["Basic SEO Analysis (25 credits)", "AI Content Creation (15 credits)", "SEO Quick Check (5 credits)"],
+                "integrations": [
+                    "DataForSEO (sandbox ready)", 
+                    "OpenAI (dynamic integration with chat_completions & embeddings operations)", 
+                    "Google Analytics (OAuth ready)",
+                    "WordPress (business-level)",
+                    "System integrations table ready"
+                ],
+                "workflow_templates": ["Basic SEO Analysis (25 credits)", "AI Content Creation (15 credits)", "SEO Quick Check (5 credits)", "WordPress Content Sync (5 credits)"],
                 "database": "Fresh schema with all tables including system_integrations",
-                "vector_embeddings": "pgvector extension installed - ready for semantic search"
+                "vector_embeddings": "pgvector extension installed - ready for semantic search",
+                "dynamic_integrations": "OpenAI configured as first dynamic integration - ready for Integration Builder"
             },
             "next_steps": [
                 "1. Login: POST /api/v1/auth/login",

@@ -590,7 +590,14 @@ class IntegrationBase(BaseModel):
     is_mock: bool = False
 
 class IntegrationCreate(IntegrationBase):
-    pass
+    # Dynamic Integration Builder fields
+    is_dynamic: bool = False
+    platform_config: Optional[Dict[str, Any]] = None
+    auth_config: Optional[Dict[str, Any]] = None
+    oauth_config: Optional[Dict[str, Any]] = None
+    operation_configs: Optional[Dict[str, Any]] = None
+    is_system_wide: bool = False
+    requires_user_config: bool = True
 
 class IntegrationUpdate(BaseModel):
     name: Optional[str] = None
@@ -598,15 +605,120 @@ class IntegrationUpdate(BaseModel):
     config_schema: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
     is_mock: Optional[bool] = None
+    # Dynamic Integration Builder fields
+    is_dynamic: Optional[bool] = None
+    platform_config: Optional[Dict[str, Any]] = None
+    auth_config: Optional[Dict[str, Any]] = None
+    oauth_config: Optional[Dict[str, Any]] = None
+    operation_configs: Optional[Dict[str, Any]] = None
+    is_system_wide: Optional[bool] = None
+    requires_user_config: Optional[bool] = None
 
 class Integration(IntegrationBase):
     id: int
     is_active: bool
+    is_dynamic: bool
+    platform_config: Optional[Dict[str, Any]] = None
+    auth_config: Optional[Dict[str, Any]] = None
+    oauth_config: Optional[Dict[str, Any]] = None
+    operation_configs: Optional[Dict[str, Any]] = None
+    is_system_wide: bool
+    requires_user_config: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
+
+# =============================================================================
+# DYNAMIC INTEGRATION BUILDER SCHEMAS
+# =============================================================================
+
+class IntegrationParseRequest(BaseModel):
+    """Request schema for AI-powered API documentation parser"""
+    platform_name: str
+    documentation: str
+    instructions: Optional[str] = None
+
+class OperationParameter(BaseModel):
+    """Schema for operation parameter configuration"""
+    name: str
+    type: str  # string, number, boolean, array, object, select, file
+    required: bool = False
+    fixed: bool = False  # If true, value set by admin; if false, user can configure
+    default: Optional[Any] = None
+    description: Optional[str] = None
+    location: str = "body"  # body, query, path, header
+    options: Optional[List[str]] = None  # For select type
+
+class OperationHeader(BaseModel):
+    """Schema for operation header configuration"""
+    name: str
+    value: str
+    fixed: bool = True
+
+class AsyncOperationConfig(BaseModel):
+    """Schema for async operation polling configuration"""
+    task_endpoint: str  # Initial POST/PUT endpoint
+    result_endpoint: str  # GET endpoint with {task_id} placeholder
+    polling_interval_seconds: int = 5
+    max_polling_attempts: int = 60
+    completion_field: str  # JSONPath to field indicating completion
+    completion_value: Any  # Value indicating task is complete
+    task_id_field: str = "tasks[0].id"  # JSONPath to extract task ID from initial response
+
+class ResponseMapping(BaseModel):
+    """Schema for response data extraction"""
+    success_field: Optional[str] = None  # JSONPath to success indicator
+    success_value: Optional[Any] = None  # Value indicating success
+    data_field: Optional[str] = None  # JSONPath to extract response data
+    error_field: Optional[str] = None  # JSONPath to error message
+
+class IntegrationOperation(BaseModel):
+    """Schema for individual integration operation"""
+    id: str  # Unique operation ID (e.g., "serp_google_organic")
+    name: str  # Display name
+    description: Optional[str] = None
+    endpoint: str  # API endpoint path
+    method: str = "POST"  # HTTP method
+    category: str = "General"  # For grouping in UI
+    base_credits: int = 1  # Credit cost for operation
+    is_async: bool = False  # Whether operation requires polling
+    async_config: Optional[AsyncOperationConfig] = None
+    parameters: List[OperationParameter] = []
+    headers: List[OperationHeader] = []
+    response_mapping: Optional[ResponseMapping] = None
+
+class IntegrationOperationTest(BaseModel):
+    """Schema for testing an integration operation"""
+    integration_id: int
+    operation_id: str
+    test_parameters: Dict[str, Any]  # Parameter values for testing
+    business_id: Optional[int] = None  # For business-level credentials
+
+class IntegrationBuilderCreate(BaseModel):
+    """Schema for creating integration via builder"""
+    name: str
+    provider: str
+    integration_type: Literal['system', 'agency', 'business'] = 'business'
+    level: Literal['system', 'agency', 'business'] = 'business'
+    is_system_wide: bool = False
+    requires_user_config: bool = True
+    platform_config: Dict[str, Any]  # {name, base_url, auth_type, color, icon_url, documentation_url}
+    auth_config: Dict[str, Any]  # {type, credentials: [{name, type, required, fixed}]}
+    oauth_config: Optional[Dict[str, Any]] = None  # For OAuth integrations
+    operations: List[IntegrationOperation] = []
+
+class IntegrationBuilderUpdate(BaseModel):
+    """Schema for updating integration via builder"""
+    name: Optional[str] = None
+    platform_config: Optional[Dict[str, Any]] = None
+    auth_config: Optional[Dict[str, Any]] = None
+    oauth_config: Optional[Dict[str, Any]] = None
+    operations: Optional[List[IntegrationOperation]] = None
+    is_system_wide: Optional[bool] = None
+    requires_user_config: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 class SystemIntegrationBase(BaseModel):
     integration_id: int
