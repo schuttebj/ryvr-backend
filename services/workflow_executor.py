@@ -13,6 +13,7 @@ import models
 from services.credit_service import CreditService
 from services.integration_service import IntegrationService
 from services.expression_engine import ExpressionEngine
+from services.dynamic_integration_service import DynamicIntegrationService
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class WorkflowExecutor:
         self.db = db
         self.credit_service = CreditService(db)
         self.integration_service = IntegrationService(db)
+        self.dynamic_integration_service = DynamicIntegrationService(db)
         self.expression_engine = ExpressionEngine()
     
     async def execute(self, execution_id: int):
@@ -174,7 +176,7 @@ class WorkflowExecutor:
     
     async def _execute_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a single workflow step
+        Execute a single workflow step using dynamic integration system
         
         Args:
             execution: WorkflowExecution instance
@@ -188,7 +190,6 @@ class WorkflowExecutor:
         step_name = step.get("name", step_id)
         
         # Get the actual step type - check top-level first, then nested bindings
-        # Priority: step["type"] > step["input"]["bindings"]["type"]
         raw_type = step.get("type")
         
         # If top-level type is missing or generic, try to get more specific type from bindings
@@ -220,15 +221,12 @@ class WorkflowExecutor:
         try:
             result = {}
             
-            # Route to appropriate handler based on step type
+            # Route execution based on step type
             if step_type == "trigger":
                 result = await self._execute_trigger_step(execution, step)
-            elif step_type == "api_call":
-                result = await self._execute_api_call_step(execution, step)
-            elif step_type == "task":
-                result = await self._execute_task_step(execution, step)
-            elif step_type == "ai":
-                result = await self._execute_ai_step(execution, step)
+            elif step_type in ["api_call", "task", "ai", "seo", "data_extraction", "email"]:
+                # Use unified integration execution for all integration-based steps
+                result = await self._execute_integration_step(execution, step, raw_type)
             elif step_type == "transform":
                 result = await self._execute_transform_step(execution, step)
             elif step_type == "review":
@@ -237,12 +235,6 @@ class WorkflowExecutor:
                 result = await self._execute_options_step(execution, step)
             elif step_type == "conditional":
                 result = await self._execute_conditional_step(execution, step)
-            elif step_type == "email":
-                result = await self._execute_email_step(execution, step)
-            elif step_type == "seo":
-                result = await self._execute_seo_step(execution, step)
-            elif step_type == "data_extraction":
-                result = await self._execute_data_extraction_step(execution, step)
             else:
                 result = {
                     "success": False,
@@ -353,148 +345,193 @@ class WorkflowExecutor:
             "credits_used": 0
         }
     
-    async def _execute_api_call_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an API call step (integration call)"""
-        connection_id = step.get("connection_id")
-        operation = step.get("operation")
-        
-        logger.info(f"Executing API call: {connection_id}.{operation}")
-        
-        # Check if this is a dynamic integration
-        # connection_id format: "integration_name" or "integration_name.operation_id"
+    async def _execute_integration_step(self, execution: models.WorkflowExecution, step: Dict[str, Any], raw_type: str) -> Dict[str, Any]:
+        """
+        Execute any integration-based step using the dynamic integration system
+        This replaces all the individual mock execution methods (AI, SEO, email, etc.)
+        """
         try:
-            # Get integration by provider/name
-            parts = connection_id.split(".")
-            integration_name = parts[0] if parts else connection_id
-            operation_id = operation or (parts[1] if len(parts) > 1 else None)
+            # Extract config from nested structure
+            input_data_wrapper = step.get("input", {})
+            bindings = input_data_wrapper.get("bindings", step.get("bindings", {}))
+            config = bindings.get("config", {})
             
-            integration = self.db.query(models.Integration).filter(
-                models.Integration.provider == integration_name,
-                models.Integration.is_active == True
-            ).first()
+            # Get integration ID from config
+            integration_id = config.get("integrationId")
+            if not integration_id:
+                logger.warning(f"No integrationId found in step config, attempting to infer from type: {raw_type}")
+                # Try to find integration by type
+                integration_id = await self._find_integration_by_type(raw_type, execution.business_id)
             
-            if not integration:
-                # Try by name
+            if not integration_id:
+                raise ValueError(f"No integration configured for step type: {raw_type}")
+            
+            # Parse integration ID to get numeric ID
+            # Format can be: "integration_1234567890" or just "1234567890" or "provider_name"
+            if isinstance(integration_id, str):
+                if integration_id.startswith("integration_"):
+                    # Extract timestamp-based ID
+                    timestamp_str = integration_id.replace("integration_", "")
+                    # Look up integration by checking business integrations
+                    integration = await self._find_integration_by_id_or_timestamp(timestamp_str, execution.business_id)
+                else:
+                    # Try direct ID lookup
+                    try:
+                        integration = self.db.query(models.Integration).filter(
+                            models.Integration.id == int(integration_id)
+                        ).first()
+                    except ValueError:
+                        # It's a string identifier, look up by provider name
+                        integration = await self._find_integration_by_provider(integration_id, execution.business_id)
+            else:
                 integration = self.db.query(models.Integration).filter(
-                    models.Integration.name == integration_name,
-                    models.Integration.is_active == True
+                    models.Integration.id == integration_id
                 ).first()
             
-            if integration and integration.is_dynamic and operation_id:
-                # Use dynamic integration service
-                from services.dynamic_integration_service import DynamicIntegrationService
-                
-                dynamic_service = DynamicIntegrationService(self.db)
-                
-                # Extract parameters from step configuration
-                parameters = step.get("config", {})
-                
-                # Execute the operation
-                result = await dynamic_service.execute_operation(
-                    integration_id=integration.id,
-                    operation_id=operation_id,
-                    business_id=execution.business_id,
-                    parameters=parameters,
-                    user_id=execution.template.user_id if execution.template else 1
-                )
-                
-                return result
-            else:
-                # Fall back to legacy integration service
-                result = await self.integration_service.execute_integration(
-                    integration_name=connection_id,
-                    business_id=execution.business_id,
-                    node_config=step.get("config", {}),
-                    input_data=step.get("input", {}),
-                    user_id=execution.template.user_id if execution.template else 1
-                )
-                
-                return result
-                
+            if not integration:
+                raise ValueError(f"Integration not found: {integration_id}")
+            
+            logger.info(f"Executing integration: {integration.name} (ID: {integration.id}, Type: {raw_type})")
+            
+            # Determine which operation to execute based on the node type
+            operation_id = raw_type  # e.g., "seo_serp_analyze", "ai_openai_task", "wordpress_posts"
+            
+            # Resolve step parameters using expression engine
+            resolved_parameters = await self._resolve_step_parameters(step, execution)
+            
+            # Merge with config parameters
+            parameters = {**config, **resolved_parameters}
+            
+            # Remove integrationId from parameters as it's metadata
+            parameters.pop("integrationId", None)
+            
+            logger.info(f"Executing operation '{operation_id}' with parameters: {list(parameters.keys())}")
+            
+            # Execute using dynamic integration service
+            result = await self.dynamic_integration_service.execute_operation(
+                integration_id=integration.id,
+                operation_id=operation_id,
+                business_id=execution.business_id,
+                parameters=parameters,
+                user_id=execution.template.user_id if execution.template else 1
+            )
+            
+            logger.info(f"Integration execution result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"API call execution failed: {e}", exc_info=True)
+            logger.error(f"Integration step execution failed: {e}", exc_info=True)
             return {
                 "success": False,
-                "connection_id": connection_id,
-                "operation": operation,
                 "error": str(e),
+                "operation": raw_type,
                 "credits_used": 0
             }
     
-    async def _execute_task_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a task step"""
-        operation = step.get("operation")
-        logger.info(f"Executing task: {operation}")
+    async def _find_integration_by_type(self, node_type: str, business_id: int) -> Optional[str]:
+        """Find integration by matching node type to integration operations"""
+        # Query business integrations
+        business_integrations = self.db.query(models.BusinessIntegration).filter(
+            models.BusinessIntegration.business_id == business_id,
+            models.BusinessIntegration.is_active == True
+        ).all()
         
-        return {
-            "success": True,
-            "operation": operation,
-            "result": {"message": "Task executed (mock)"},
-            "credits_used": 1
-        }
+        for bi in business_integrations:
+            integration = bi.integration
+            if integration.is_dynamic and integration.operation_configs:
+                operations = integration.operation_configs.get("operations", [])
+                for op in operations:
+                    if op.get("id") == node_type:
+                        return str(integration.id)
+        
+        # Fallback to system integrations
+        integrations = self.db.query(models.Integration).filter(
+            models.Integration.is_active == True,
+            models.Integration.is_dynamic == True
+        ).all()
+        
+        for integration in integrations:
+            if integration.operation_configs:
+                operations = integration.operation_configs.get("operations", [])
+                for op in operations:
+                    if op.get("id") == node_type:
+                        return str(integration.id)
+        
+        return None
     
-    async def _execute_ai_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an AI step"""
-        # Extract config from nested structure
-        input_data = step.get("input", {})
-        bindings = input_data.get("bindings", step.get("bindings", {}))
+    async def _find_integration_by_id_or_timestamp(self, identifier: str, business_id: int) -> Optional[models.Integration]:
+        """Find integration by ID or timestamp identifier"""
+        # First, check business integrations with matching created_at timestamp
+        business_integrations = self.db.query(models.BusinessIntegration).filter(
+            models.BusinessIntegration.business_id == business_id,
+            models.BusinessIntegration.is_active == True
+        ).all()
+        
+        for bi in business_integrations:
+            integration = bi.integration
+            # Check if timestamp matches (approximately)
+            if integration.operation_configs:
+                # Look for matching integration by checking operations
+                operations = integration.operation_configs.get("operations", [])
+                for op in operations:
+                    # If this integration has operations that match our needs, use it
+                    if integration.is_dynamic:
+                        return integration
+        
+        return None
+    
+    async def _find_integration_by_provider(self, provider_name: str, business_id: int) -> Optional[models.Integration]:
+        """Find integration by provider name"""
+        # Check business integrations first
+        business_integration = self.db.query(models.BusinessIntegration).join(
+            models.Integration
+        ).filter(
+            models.BusinessIntegration.business_id == business_id,
+            models.Integration.provider == provider_name,
+            models.BusinessIntegration.is_active == True
+        ).first()
+        
+        if business_integration:
+            return business_integration.integration
+        
+        # Fallback to system integration
+        return self.db.query(models.Integration).filter(
+            models.Integration.provider == provider_name,
+            models.Integration.integration_type == "system",
+            models.Integration.is_active == True
+        ).first()
+    
+    async def _resolve_step_parameters(self, step: Dict[str, Any], execution: models.WorkflowExecution) -> Dict[str, Any]:
+        """Resolve step parameters using expression engine and runtime state"""
+        # Extract config
+        input_data_wrapper = step.get("input", {})
+        bindings = input_data_wrapper.get("bindings", {})
         config = bindings.get("config", {})
-        operation = bindings.get("type", "ai_task")
         
-        logger.info(f"Executing AI step: {operation}")
-        
-        # Extract AI configuration
-        system_prompt = config.get("systemPrompt", "")
-        user_prompt = config.get("userPrompt", "")
-        model = config.get("modelOverride", "gpt-4")
-        json_response = config.get("jsonResponse", False)
-        
-        # TODO: Integrate with actual AI service (OpenAI, Claude, etc.)
-        # For now, return mock data that matches expected JSON schemas
-        
-        if json_response:
-            # Return mock JSON response based on common schemas
-            if "topic" in str(config.get("jsonSchema", "")).lower():
-                mock_result = {
-                    "topic": "Sample Topic Generated from Mock Data",
-                    "keywords": ["keyword1", "keyword2", "keyword3", "keyword4"]
-                }
-            elif "sections" in str(config.get("jsonSchema", "")).lower():
-                mock_result = {
-                    "title": "Mock Article Title",
-                    "sections": [
-                        {"heading": "Introduction", "content": "Mock introduction content goes here."},
-                        {"heading": "Main Content", "content": "Mock main content section."},
-                        {"heading": "Analysis", "content": "Mock analysis section."},
-                        {"heading": "Recommendations", "content": "Mock recommendations section."},
-                        {"heading": "Conclusion", "content": "Mock conclusion content."}
-                    ],
-                    "totalWordCount": 2000
-                }
-            else:
-                mock_result = {"result": "Mock AI response"}
-        else:
-            mock_result = "This is a mock AI-generated text response."
-        
-        return {
-            "success": True,
-            "operation": operation,
-            "model": model,
-            "result": {
-                "message": "AI task completed (mock)",
-                "raw": {
-                    "result": mock_result
-                },
-                "data": {
-                    "processed": {
-                        "raw": {
-                            "result": mock_result
-                        }
-                    }
-                }
-            },
-            "credits_used": 10
+        # Build runtime context for expression evaluation
+        runtime_context = {
+            "inputs": execution.runtime_state.get("inputs", {}),
+            "globals": execution.runtime_state.get("globals", {}),
+            "steps": execution.runtime_state.get("steps", {}),
+            "runtime": execution.runtime_state.get("runtime", {})
         }
+        
+        # Resolve parameters that contain expressions
+        resolved = {}
+        for key, value in config.items():
+            if isinstance(value, str) and ("{{" in value or value.startswith("expr:")):
+                try:
+                    # Try to resolve expression
+                    resolved_value = self.expression_engine.resolve_expression(value, runtime_context)
+                    resolved[key] = resolved_value
+                except Exception as e:
+                    logger.warning(f"Failed to resolve parameter '{key}': {e}")
+                    resolved[key] = value
+            else:
+                resolved[key] = value
+        
+        return resolved
     
     async def _execute_transform_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a transform step"""
@@ -538,82 +575,6 @@ class WorkflowExecutor:
             "success": True,
             "result": {"message": "Conditional evaluated (mock)"},
             "credits_used": 0
-        }
-    
-    async def _execute_email_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an email step"""
-        logger.info("Executing email step")
-        
-        # TODO: Integrate with actual email service
-        return {
-            "success": True,
-            "result": {"message": "Email sent (mock)"},
-            "credits_used": 1
-        }
-    
-    async def _execute_seo_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an SEO analysis step"""
-        # Extract config from nested structure
-        input_data = step.get("input", {})
-        bindings = input_data.get("bindings", step.get("bindings", {}))
-        config = bindings.get("config", {})
-        operation = bindings.get("type", "seo_analysis")
-        
-        logger.info(f"Executing SEO step: {operation}")
-        
-        # TODO: Integrate with DataForSEO or other SEO service
-        # Extract parameters from config
-        keyword = config.get("keyword", "")
-        integration_id = config.get("integrationId", "")
-        
-        return {
-            "success": True,
-            "operation": operation,
-            "keyword": keyword,
-            "result": {
-                "message": "SEO analysis completed (mock)",
-                "keyword": keyword,
-                "integration": integration_id,
-                "data": {
-                    "processed": {
-                        "results": [{
-                            "keyword": keyword,
-                            "position": 1,
-                            "url": "https://example.com"
-                        }]
-                    }
-                }
-            },
-            "credits_used": 5
-        }
-    
-    async def _execute_data_extraction_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a data extraction/content extraction step"""
-        # Extract config from nested structure
-        input_data = step.get("input", {})
-        bindings = input_data.get("bindings", step.get("bindings", {}))
-        config = bindings.get("config", {})
-        
-        logger.info("Executing data extraction step")
-        
-        # TODO: Integrate with actual content extraction service
-        return {
-            "success": True,
-            "result": {
-                "message": "Content extracted (mock)",
-                "data": {
-                    "processed": {
-                        "extracted_content": [
-                            {"content": "Sample extracted content 1"},
-                            {"content": "Sample extracted content 2"},
-                            {"content": "Sample extracted content 3"},
-                            {"content": "Sample extracted content 4"},
-                            {"content": "Sample extracted content 5"}
-                        ]
-                    }
-                }
-            },
-            "credits_used": 2
         }
     
     def _complete_execution(self, execution: models.WorkflowExecution, message: str):

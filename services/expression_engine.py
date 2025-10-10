@@ -150,6 +150,20 @@ class ExpressionEngine:
                 
         return resolved
     
+    def resolve_expression(self, value: Any, context: Dict[str, Any]) -> Any:
+        """
+        Resolve a value that may contain expressions or templates
+        This is a public wrapper around _resolve_value
+        
+        Args:
+            value: Value to resolve (string with expressions/templates, or nested structures)
+            context: Runtime context
+            
+        Returns:
+            Resolved value with expressions evaluated
+        """
+        return self._resolve_value(value, context)
+    
     def _resolve_value(self, value: Any, context: Dict[str, Any]) -> Any:
         """Recursively resolve a value that may contain expressions or templates"""
         if isinstance(value, str):
