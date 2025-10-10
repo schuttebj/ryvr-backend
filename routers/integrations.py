@@ -1307,7 +1307,8 @@ async def test_integration_operation(
             business_id=business_id,
             parameters=test_request.test_parameters,
             user_id=current_user.id,
-            temp_credentials=test_request.credentials
+            temp_credentials=test_request.credentials,
+            business_integration_id=test_request.business_integration_id  # NEW: Support instance selection
         )
         
         return {

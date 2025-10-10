@@ -739,12 +739,13 @@ class AgencyIntegration(Base):
     )
 
 class BusinessIntegration(Base):
-    """Business-level integration configurations"""
+    """Business-level integration configurations - supports multiple named instances per integration"""
     __tablename__ = "business_integrations"
     
     id = Column(Integer, primary_key=True, index=True)
     business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
     integration_id = Column(Integer, ForeignKey("integrations.id"), nullable=False)
+    instance_name = Column(String, nullable=False)  # User-provided name (e.g., "Client A Brevo", "Personal SendGrid")
     custom_config = Column(JSON, default=dict)
     credentials = Column(JSON, default=dict)  # encrypted API keys, etc.
     is_active = Column(Boolean, default=True)
@@ -757,7 +758,8 @@ class BusinessIntegration(Base):
     integration = relationship("Integration", back_populates="business_integrations")
     
     __table_args__ = (
-        UniqueConstraint('business_id', 'integration_id', name='unique_business_integration'),
+        # Allow multiple instances of same integration, but unique names per business
+        UniqueConstraint('business_id', 'integration_id', 'instance_name', name='unique_business_integration_instance'),
     )
 
 # =============================================================================

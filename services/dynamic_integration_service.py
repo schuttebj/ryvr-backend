@@ -36,7 +36,8 @@ class DynamicIntegrationService:
         business_id: int,
         parameters: Dict[str, Any],
         user_id: int,
-        temp_credentials: Optional[Dict[str, Any]] = None
+        temp_credentials: Optional[Dict[str, Any]] = None,
+        business_integration_id: Optional[int] = None  # NEW: Specify which instance to use
     ) -> Dict[str, Any]:
         """
         Execute a dynamically configured integration operation
@@ -48,6 +49,7 @@ class DynamicIntegrationService:
             parameters: User-provided parameter values
             user_id: User executing the operation
             temp_credentials: Temporary credentials for testing (not stored)
+            business_integration_id: Specific business integration instance ID (for multiple instances)
             
         Returns:
             Standardized response with success status, data, and credits used
@@ -82,11 +84,15 @@ class DynamicIntegrationService:
             if temp_credentials:
                 credentials = temp_credentials
             else:
-                credentials = await self._get_credentials(integration, business_id)
+                credentials = await self._get_credentials(
+                    integration, 
+                    business_id, 
+                    business_integration_id=business_integration_id
+                )
                 if not credentials:
                     return {
                         "success": False,
-                        "error": "No credentials configured for this integration"
+                        "error": "No credentials configured for this integration instance"
                     }
             
             # Check and deduct credits before execution (skip for temp credentials in testing)
@@ -611,11 +617,23 @@ class DynamicIntegrationService:
     async def _get_credentials(
         self,
         integration: models.Integration,
-        business_id: int
+        business_id: int,
+        business_integration_id: Optional[int] = None
     ) -> Optional[Dict[str, Any]]:
-        """Get credentials for integration (business > agency > system level)"""
+        """Get credentials for integration. Supports multiple named instances."""
         
-        # Try business-level credentials first
+        # If specific business_integration_id provided, use that instance
+        if business_integration_id:
+            business_integration = self.db.query(models.BusinessIntegration).filter(
+                models.BusinessIntegration.id == business_integration_id,
+                models.BusinessIntegration.is_active == True
+            ).first()
+            
+            if business_integration and business_integration.credentials:
+                logger.info(f"Using credentials from business_integration_id: {business_integration_id} (instance: {business_integration.instance_name})")
+                return business_integration.credentials
+        
+        # Fallback: Try business-level credentials (first active instance)
         business_integration = self.db.query(models.BusinessIntegration).filter(
             models.BusinessIntegration.business_id == business_id,
             models.BusinessIntegration.integration_id == integration.id,
@@ -623,6 +641,7 @@ class DynamicIntegrationService:
         ).first()
         
         if business_integration and business_integration.credentials:
+            logger.info(f"Using credentials from first business integration instance: {business_integration.instance_name}")
             return business_integration.credentials
         
         # Try system-level credentials

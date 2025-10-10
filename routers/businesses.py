@@ -300,7 +300,7 @@ async def create_business_integration(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Create or update a business integration (upsert)."""
+    """Create a business integration instance. Supports multiple named instances per integration."""
     if not verify_business_access(db, current_user, business_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -310,14 +310,15 @@ async def create_business_integration(
     # Update integration data with business_id
     integration.business_id = business_id
     
-    # Check if integration already exists
+    # Check if instance with this name already exists for this business+integration combination
     existing = db.query(models.BusinessIntegration).filter(
         models.BusinessIntegration.business_id == business_id,
-        models.BusinessIntegration.integration_id == integration.integration_id
+        models.BusinessIntegration.integration_id == integration.integration_id,
+        models.BusinessIntegration.instance_name == integration.instance_name
     ).first()
     
     if existing:
-        # Update existing integration
+        # Update existing integration instance
         for key, value in integration.dict(exclude_unset=True).items():
             if key != 'id':  # Don't update ID
                 setattr(existing, key, value)
@@ -325,7 +326,7 @@ async def create_business_integration(
         db.refresh(existing)
         return existing
     
-    # Create new integration
+    # Create new integration instance
     db_integration = models.BusinessIntegration(**integration.dict())
     db.add(db_integration)
     db.commit()

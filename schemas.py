@@ -704,6 +704,7 @@ class IntegrationOperationTest(BaseModel):
     test_parameters: Dict[str, Any]  # Parameter values for testing
     business_id: Optional[int] = None  # For business-level credentials
     credentials: Optional[Dict[str, Any]] = None  # Temporary credentials for testing (not stored)
+    business_integration_id: Optional[int] = None  # Specific business integration instance to use
 
 class IntegrationBuilderCreate(BaseModel):
     """Schema for creating integration via builder"""
@@ -771,6 +772,7 @@ class AgencyIntegration(AgencyIntegrationBase):
 class BusinessIntegrationBase(BaseModel):
     business_id: int
     integration_id: int
+    instance_name: str  # User-provided name for this integration instance
     custom_config: Optional[Dict[str, Any]] = {}
     credentials: Optional[Dict[str, Any]] = {}
 
