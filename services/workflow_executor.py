@@ -424,18 +424,18 @@ class WorkflowExecutor:
             logger.info(f"Executing operation with config keys: {list(node_config.keys())}")
             
             # Execute using IntegrationService (same as working test workflow)
-                result = await self.integration_service.execute_integration(
+            result = await self.integration_service.execute_integration(
                 integration_name=integration_name,
-                    business_id=execution.business_id,
+                business_id=execution.business_id,
                 node_config=node_config,
                 input_data=input_data,
                 user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1
             )
             
             logger.info(f"Integration execution result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
-                
-                return result
-                
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Integration step execution failed: {e}", exc_info=True)
             return {
