@@ -115,6 +115,27 @@ For authentication types:
 - "bearer" - Bearer token in Authorization header
 - "api_key" - API key (can be in header or query param)
 - "oauth2" - OAuth 2.0 flow
+- "none" - No authentication required
+
+**IMPORTANT - API Key Authentication Detection:**
+When you see authentication using an API key, determine WHERE it should be sent:
+
+1. **Query Parameter Auth** - If the API documentation shows:
+   - API key in the URL: ?key=YOUR_KEY, ?api_key=YOUR_KEY, ?apikey=YOUR_KEY, ?token=YOUR_KEY
+   - Example: http://api.example.com/endpoint?key=abc123
+   - Set auth_type to "api_key" 
+   - Include "query_param_name" field with the parameter name (e.g., "key", "api_key")
+   - DO NOT include "header_name"
+
+2. **Header Auth** - If the API documentation shows:
+   - API key in headers: X-API-Key, Authorization, api-key, etc.
+   - Example: curl -H "X-API-Key: abc123"
+   - Set auth_type to "api_key"
+   - Include "header_name" field (e.g., "X-API-Key")
+   - DO NOT include "query_param_name"
+
+3. **No Auth** - If no authentication is mentioned or required:
+   - Set auth_type to "none"
 
 For parameter types:
 - "string" - Text value
@@ -173,7 +194,7 @@ Extract the integration configuration following the schema. Include all relevant
                         "base_url": {"type": "string"},
                         "auth_type": {
                             "type": "string",
-                            "enum": ["basic", "bearer", "api_key", "oauth2"]
+                            "enum": ["basic", "bearer", "api_key", "oauth2", "none"]
                         },
                         "color": {"type": "string"},
                         "documentation_url": {"type": "string"},
@@ -188,7 +209,7 @@ Extract the integration configuration following the schema. Include all relevant
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["basic", "bearer", "api_key", "oauth2"]
+                            "enum": ["basic", "bearer", "api_key", "oauth2", "none"]
                         },
                         "credentials": {
                             "type": "array",
@@ -207,7 +228,9 @@ Extract the integration configuration following the schema. Include all relevant
                                 "required": ["name", "type", "required", "fixed", "description"],
                                 "additionalProperties": False
                             }
-                        }
+                        },
+                        "header_name": {"type": "string"},
+                        "query_param_name": {"type": "string"}
                     },
                     "required": ["type", "credentials"],
                     "additionalProperties": False

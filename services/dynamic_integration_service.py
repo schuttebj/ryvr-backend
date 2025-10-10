@@ -181,7 +181,7 @@ class DynamicIntegrationService:
         """Execute a synchronous API operation"""
         
         # Build request components
-        url = self._build_url(base_url, operation["endpoint"], parameters, operation.get("parameters", []))
+        url = self._build_url(base_url, operation["endpoint"], parameters, operation.get("parameters", []), integration, credentials)
         headers = self._build_headers(integration, operation, credentials)
         body = self._build_body(parameters, operation.get("parameters", []))
         
@@ -238,7 +238,7 @@ class DynamicIntegrationService:
         
         # Step 1: Submit initial request
         task_endpoint = async_config.get("task_endpoint", operation["endpoint"])
-        url = self._build_url(base_url, task_endpoint, parameters, operation.get("parameters", []))
+        url = self._build_url(base_url, task_endpoint, parameters, operation.get("parameters", []), integration, credentials)
         headers = self._build_headers(integration, operation, credentials)
         body = self._build_body(parameters, operation.get("parameters", []))
         
@@ -342,7 +342,9 @@ class DynamicIntegrationService:
         base_url: str,
         endpoint: str,
         parameters: Dict[str, Any],
-        param_definitions: List[Dict[str, Any]]
+        param_definitions: List[Dict[str, Any]],
+        integration: models.Integration,
+        credentials: Dict[str, Any]
     ) -> str:
         """Build complete URL with query parameters and path substitutions"""
         
@@ -372,6 +374,16 @@ class DynamicIntegrationService:
                     default_value = param_def["default"]
                     if default_value is not None and default_value != "" and default_value != []:
                         query_params[param_name] = default_value
+        
+        # Add authentication as query parameter if configured
+        auth_config = integration.auth_config or {}
+        if auth_config.get("type") == "api_key" and auth_config.get("query_param_name"):
+            api_key_field = next((name for name in credentials.keys()), None)
+            api_key = credentials.get(api_key_field, "") if api_key_field else ""
+            if api_key:
+                query_param_name = auth_config["query_param_name"]
+                query_params[query_param_name] = api_key
+                logger.info(f"Added API key to query parameter: {query_param_name}")
         
         if query_params:
             url = f"{url}?{urlencode(query_params)}"
@@ -424,11 +436,16 @@ class DynamicIntegrationService:
                 logger.info(f"Using Bearer token with field: {api_key_field}")
         
         elif auth_type == "api_key":
-            # API key in custom header - use the configured header name
+            # API key can be in header or query parameter
             api_key_field = next((name for name in credentials.keys()), None)
             api_key = credentials.get(api_key_field, "") if api_key_field else ""
-            header_name = auth_config.get("header_name", "X-API-Key")
-            if api_key:
+            
+            # If query_param_name is specified, skip adding to headers (will be added to URL)
+            if "query_param_name" in auth_config:
+                logger.info(f"API Key will be added as query parameter: {auth_config.get('query_param_name')}")
+            elif api_key:
+                # Add to header
+                header_name = auth_config.get("header_name", "X-API-Key")
                 headers[header_name] = api_key
                 logger.info(f"Using API Key in custom header: {header_name} with field: {api_key_field}")
         
