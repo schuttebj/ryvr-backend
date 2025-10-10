@@ -13,7 +13,6 @@ import models
 from services.credit_service import CreditService
 from services.integration_service import IntegrationService
 from services.expression_engine import ExpressionEngine
-from services.dynamic_integration_service import DynamicIntegrationService
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,6 @@ class WorkflowExecutor:
         self.db = db
         self.credit_service = CreditService(db)
         self.integration_service = IntegrationService(db)
-        self.dynamic_integration_service = DynamicIntegrationService(db)
         self.expression_engine = ExpressionEngine()
     
     async def execute(self, execution_id: int):
@@ -351,8 +349,8 @@ class WorkflowExecutor:
     
     async def _execute_integration_step(self, execution: models.WorkflowExecution, step: Dict[str, Any], raw_type: str) -> Dict[str, Any]:
         """
-        Execute any integration-based step using the dynamic integration system
-        This replaces all the individual mock execution methods (AI, SEO, email, etc.)
+        Execute any integration-based step using IntegrationService
+        This uses the same approach as the working test workflow functionality
         """
         try:
             # Extract config from nested structure
@@ -360,70 +358,84 @@ class WorkflowExecutor:
             bindings = input_data_wrapper.get("bindings", step.get("bindings", {}))
             config = bindings.get("config", {})
             
-            # Get integration ID from config
+            # Get integration ID from config and determine provider name
             integration_id = config.get("integrationId")
-            if not integration_id:
-                logger.warning(f"No integrationId found in step config, attempting to infer from type: {raw_type}")
-                # Try to find integration by type
-                integration_id = await self._find_integration_by_type(raw_type, execution.business_id)
             
-            if not integration_id:
-                raise ValueError(f"No integration configured for step type: {raw_type}")
-            
-            # Parse integration ID to get numeric ID
-            # Format can be: "integration_1234567890" or just "1234567890" or "provider_name"
-            if isinstance(integration_id, str):
-                if integration_id.startswith("integration_"):
-                    # Extract timestamp-based ID
-                    timestamp_str = integration_id.replace("integration_", "")
-                    # Look up integration by checking business integrations
-                    integration = await self._find_integration_by_id_or_timestamp(timestamp_str, execution.business_id)
+            # Determine integration name/provider from integrationId or node type
+            if integration_id:
+                # Try to look up the integration to get its provider name
+                if isinstance(integration_id, str) and integration_id.startswith("integration_"):
+                    # Find the integration by matching it to business integrations
+                    business_integrations = self.db.query(models.BusinessIntegration).filter(
+                        models.BusinessIntegration.business_id == execution.business_id,
+                        models.BusinessIntegration.is_active == True
+                    ).all()
+                    
+                    # Try to find matching integration
+                    integration_name = None
+                    for bi in business_integrations:
+                        # Check if this is a DataForSEO, OpenAI, WordPress, etc. integration
+                        provider = bi.integration.provider
+                        if provider:
+                            integration_name = provider
+                            break
+                    
+                    if not integration_name:
+                        # Fallback: infer from node type
+                        integration_name = self._infer_provider_from_node_type(raw_type)
                 else:
-                    # Try direct ID lookup
-                    try:
-                        integration = self.db.query(models.Integration).filter(
-                            models.Integration.id == int(integration_id)
-                        ).first()
-                    except ValueError:
-                        # It's a string identifier, look up by provider name
-                        integration = await self._find_integration_by_provider(integration_id, execution.business_id)
+                    # Direct provider name
+                    integration_name = integration_id
             else:
-                integration = self.db.query(models.Integration).filter(
-                    models.Integration.id == integration_id
-                ).first()
+                # No integrationId, infer from node type
+                integration_name = self._infer_provider_from_node_type(raw_type)
             
-            if not integration:
-                raise ValueError(f"Integration not found: {integration_id}")
+            logger.info(f"Executing integration step: provider={integration_name}, type={raw_type}")
             
-            logger.info(f"Executing integration: {integration.name} (ID: {integration.id}, Type: {raw_type})")
+            # Build runtime context for parameter resolution
+            runtime_context = {
+                "inputs": execution.runtime_state.get("inputs", {}),
+                "globals": execution.runtime_state.get("globals", {}),
+                "steps": execution.runtime_state.get("steps", {}),
+                "runtime": execution.runtime_state.get("runtime", {})
+            }
             
-            # Determine which operation to execute based on the node type
-            operation_id = raw_type  # e.g., "seo_serp_analyze", "ai_openai_task", "wordpress_posts"
+            # Prepare node_config (the configuration for this specific node)
+            node_config = {}
+            for key, value in config.items():
+                if key != "integrationId":  # Skip metadata
+                    # Resolve any expressions in the config values
+                    if isinstance(value, str) and ("{{" in value or value.startswith("expr:")):
+                        try:
+                            node_config[key] = self.expression_engine.resolve_expression(value, runtime_context)
+                        except Exception as e:
+                            logger.warning(f"Failed to resolve config parameter '{key}': {e}")
+                            node_config[key] = value
+                    else:
+                        node_config[key] = value
             
-            # Resolve step parameters using expression engine
-            resolved_parameters = await self._resolve_step_parameters(step, execution)
+            # Prepare input_data (data from previous steps)
+            input_data = {
+                "node_type": raw_type,
+                "step_id": step.get("id"),
+                **bindings  # Include all bindings as input data
+            }
             
-            # Merge with config parameters
-            parameters = {**config, **resolved_parameters}
+            logger.info(f"Executing operation with config keys: {list(node_config.keys())}")
             
-            # Remove integrationId from parameters as it's metadata
-            parameters.pop("integrationId", None)
-            
-            logger.info(f"Executing operation '{operation_id}' with parameters: {list(parameters.keys())}")
-            
-            # Execute using dynamic integration service
-            result = await self.dynamic_integration_service.execute_operation(
-                integration_id=integration.id,
-                operation_id=operation_id,
-                business_id=execution.business_id,
-                parameters=parameters,
+            # Execute using IntegrationService (same as working test workflow)
+                result = await self.integration_service.execute_integration(
+                integration_name=integration_name,
+                    business_id=execution.business_id,
+                node_config=node_config,
+                input_data=input_data,
                 user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1
             )
             
             logger.info(f"Integration execution result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
-            
-            return result
-            
+                
+                return result
+                
         except Exception as e:
             logger.error(f"Integration step execution failed: {e}", exc_info=True)
             return {
@@ -433,109 +445,21 @@ class WorkflowExecutor:
                 "credits_used": 0
             }
     
-    async def _find_integration_by_type(self, node_type: str, business_id: int) -> Optional[str]:
-        """Find integration by matching node type to integration operations"""
-        # Query business integrations
-        business_integrations = self.db.query(models.BusinessIntegration).filter(
-            models.BusinessIntegration.business_id == business_id,
-            models.BusinessIntegration.is_active == True
-        ).all()
-        
-        for bi in business_integrations:
-            integration = bi.integration
-            if integration.is_dynamic and integration.operation_configs:
-                operations = integration.operation_configs.get("operations", [])
-                for op in operations:
-                    if op.get("id") == node_type:
-                        return str(integration.id)
-        
-        # Fallback to system integrations
-        integrations = self.db.query(models.Integration).filter(
-            models.Integration.is_active == True,
-            models.Integration.is_dynamic == True
-        ).all()
-        
-        for integration in integrations:
-            if integration.operation_configs:
-                operations = integration.operation_configs.get("operations", [])
-                for op in operations:
-                    if op.get("id") == node_type:
-                        return str(integration.id)
-        
-        return None
-    
-    async def _find_integration_by_id_or_timestamp(self, identifier: str, business_id: int) -> Optional[models.Integration]:
-        """Find integration by ID or timestamp identifier"""
-        # First, check business integrations with matching created_at timestamp
-        business_integrations = self.db.query(models.BusinessIntegration).filter(
-            models.BusinessIntegration.business_id == business_id,
-            models.BusinessIntegration.is_active == True
-        ).all()
-        
-        for bi in business_integrations:
-            integration = bi.integration
-            # Check if timestamp matches (approximately)
-            if integration.operation_configs:
-                # Look for matching integration by checking operations
-                operations = integration.operation_configs.get("operations", [])
-                for op in operations:
-                    # If this integration has operations that match our needs, use it
-                    if integration.is_dynamic:
-                        return integration
-        
-        return None
-    
-    async def _find_integration_by_provider(self, provider_name: str, business_id: int) -> Optional[models.Integration]:
-        """Find integration by provider name"""
-        # Check business integrations first
-        business_integration = self.db.query(models.BusinessIntegration).join(
-            models.Integration
-        ).filter(
-            models.BusinessIntegration.business_id == business_id,
-            models.Integration.provider == provider_name,
-            models.BusinessIntegration.is_active == True
-        ).first()
-        
-        if business_integration:
-            return business_integration.integration
-        
-        # Fallback to system integration
-        return self.db.query(models.Integration).filter(
-            models.Integration.provider == provider_name,
-            models.Integration.integration_type == "system",
-            models.Integration.is_active == True
-        ).first()
-    
-    async def _resolve_step_parameters(self, step: Dict[str, Any], execution: models.WorkflowExecution) -> Dict[str, Any]:
-        """Resolve step parameters using expression engine and runtime state"""
-        # Extract config
-        input_data_wrapper = step.get("input", {})
-        bindings = input_data_wrapper.get("bindings", {})
-        config = bindings.get("config", {})
-        
-        # Build runtime context for expression evaluation
-        runtime_context = {
-            "inputs": execution.runtime_state.get("inputs", {}),
-            "globals": execution.runtime_state.get("globals", {}),
-            "steps": execution.runtime_state.get("steps", {}),
-            "runtime": execution.runtime_state.get("runtime", {})
-        }
-        
-        # Resolve parameters that contain expressions
-        resolved = {}
-        for key, value in config.items():
-            if isinstance(value, str) and ("{{" in value or value.startswith("expr:")):
-                try:
-                    # Try to resolve expression
-                    resolved_value = self.expression_engine.resolve_expression(value, runtime_context)
-                    resolved[key] = resolved_value
-                except Exception as e:
-                    logger.warning(f"Failed to resolve parameter '{key}': {e}")
-                    resolved[key] = value
-            else:
-                resolved[key] = value
-        
-        return resolved
+    def _infer_provider_from_node_type(self, node_type: str) -> str:
+        """Infer integration provider name from node type"""
+        if node_type.startswith("seo_"):
+            return "dataforseo"
+        elif node_type.startswith("ai_openai") or node_type.startswith("openai"):
+            return "openai"
+        elif node_type.startswith("wordpress_"):
+            return "wordpress"
+        elif node_type.startswith("content_extract"):
+            return "content_extraction"
+        elif node_type.startswith("email_"):
+            return "email"
+        else:
+            # Default: use the node type as provider name
+            return node_type.split("_")[0] if "_" in node_type else node_type
     
     async def _execute_transform_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a transform step"""
