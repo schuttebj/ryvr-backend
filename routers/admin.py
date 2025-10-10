@@ -465,46 +465,45 @@ async def reset_and_initialize_system(
                 ]
             }
             
-            # Operations configuration
+            # Operations configuration - MUST MATCH TOOL CATALOG IDs
             openai_integration.operation_configs = {
                 "operations": [
                     {
-                        "id": "chat_completions",
-                        "name": "Chat Completion",
-                        "description": "Generate text using OpenAI chat models",
+                        "id": "chat_completion",  # Changed from chat_completions to match tool catalog
+                        "name": "AI Text Generation",
+                        "description": "Generate text using ChatGPT",
                         "endpoint": "/chat/completions",
                         "method": "POST",
-                        "category": "AI",
-                        "base_credits": 2,
+                        "category": "ai",
+                        "base_credits": 1,
                         "is_async": False,
-                        "is_test_operation": True,  # Mark as test operation
+                        "is_test_operation": True,
                         "parameters": [
                             {
-                                "name": "model",
-                                "type": "select",
+                                "name": "prompt",
+                                "type": "textarea",
                                 "required": True,
                                 "fixed": False,
-                                "default": "gpt-4o-mini",
-                                "description": "Model to use for completion",
-                                "location": "body",
-                                "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
-                            },
-                            {
-                                "name": "system_message",
-                                "type": "text",
-                                "required": False,
-                                "fixed": False,
-                                "default": "You are a helpful assistant.",
-                                "description": "System message to set behavior",
+                                "description": "Text prompt for AI",
                                 "location": "body"
                             },
                             {
-                                "name": "user_message",
-                                "type": "text",
-                                "required": True,
+                                "name": "model",
+                                "type": "select",
+                                "required": False,
                                 "fixed": False,
-                                "default": "Hello, how are you?",
-                                "description": "User message to send to the model",
+                                "default": "gpt-3.5-turbo",
+                                "description": "AI model to use",
+                                "location": "body",
+                                "options": ["gpt-4", "gpt-3.5-turbo"]
+                            },
+                            {
+                                "name": "max_tokens",
+                                "type": "integer",
+                                "required": False,
+                                "fixed": False,
+                                "default": 500,
+                                "description": "Maximum response length",
                                 "location": "body"
                             },
                             {
@@ -513,44 +512,50 @@ async def reset_and_initialize_system(
                                 "required": False,
                                 "fixed": False,
                                 "default": 0.7,
-                                "description": "Sampling temperature between 0 and 2",
+                                "description": "Creativity level (0=conservative, 2=creative)",
+                                "location": "body"
+                            }
+                        ],
+                        "headers": [
+                            {
+                                "name": "Content-Type",
+                                "value": "application/json",
+                                "fixed": True
+                            }
+                        ],
+                        "response_mapping": {
+                            "success_field": None,
+                            "success_value": None,
+                            "data_field": "choices[0].message.content",
+                            "error_field": "error.message"
+                        }
+                    },
+                    {
+                        "id": "content_analysis",  # New operation to match tool catalog
+                        "name": "Content Analysis",
+                        "description": "Analyze text for sentiment, topics, etc.",
+                        "endpoint": "/chat/completions",
+                        "method": "POST",
+                        "category": "ai",
+                        "base_credits": 2,
+                        "is_async": False,
+                        "parameters": [
+                            {
+                                "name": "content",
+                                "type": "textarea",
+                                "required": True,
+                                "fixed": False,
+                                "description": "Content to analyze",
                                 "location": "body"
                             },
                             {
-                                "name": "max_tokens",
-                                "type": "number",
+                                "name": "analysis_type",
+                                "type": "multiselect",
                                 "required": False,
                                 "fixed": False,
-                                "default": 2000,
-                                "description": "Maximum tokens to generate",
-                                "location": "body"
-                            },
-                            {
-                                "name": "top_p",
-                                "type": "number",
-                                "required": False,
-                                "fixed": False,
-                                "default": 1.0,
-                                "description": "Nucleus sampling parameter",
-                                "location": "body"
-                            },
-                            {
-                                "name": "frequency_penalty",
-                                "type": "number",
-                                "required": False,
-                                "fixed": False,
-                                "default": 0.0,
-                                "description": "Penalize frequent tokens (-2.0 to 2.0)",
-                                "location": "body"
-                            },
-                            {
-                                "name": "presence_penalty",
-                                "type": "number",
-                                "required": False,
-                                "fixed": False,
-                                "default": 0.0,
-                                "description": "Penalize repeated tokens (-2.0 to 2.0)",
-                                "location": "body"
+                                "description": "Types of analysis to perform",
+                                "location": "body",
+                                "options": ["sentiment", "topics", "keywords", "readability"]
                             }
                         ],
                         "headers": [
@@ -573,7 +578,7 @@ async def reset_and_initialize_system(
                         "description": "Create vector embeddings for text",
                         "endpoint": "/embeddings",
                         "method": "POST",
-                        "category": "AI",
+                        "category": "ai",
                         "base_credits": 1,
                         "is_async": False,
                         "parameters": [
@@ -613,7 +618,7 @@ async def reset_and_initialize_system(
                 ]
             }
             
-            results.append("✅ Configured OpenAI as dynamic integration with 2 operations (chat_completions, embeddings)")
+            results.append("✅ Configured OpenAI as dynamic integration with 3 operations (chat_completion, content_analysis, embeddings)")
         
         # Create V2 workflow templates
         logger.info("Creating V2 workflow templates...")
