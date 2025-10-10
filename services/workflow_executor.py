@@ -413,17 +413,17 @@ class WorkflowExecutor:
             
             # Execute using dynamic integration service
             result = await self.dynamic_integration_service.execute_operation(
-                    integration_id=integration.id,
-                    operation_id=operation_id,
-                    business_id=execution.business_id,
-                    parameters=parameters,
+                integration_id=integration.id,
+                operation_id=operation_id,
+                business_id=execution.business_id,
+                parameters=parameters,
                 user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1
             )
             
             logger.info(f"Integration execution result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
-                
-                return result
-                
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Integration step execution failed: {e}", exc_info=True)
             return {
