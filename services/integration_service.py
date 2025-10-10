@@ -309,10 +309,14 @@ class IntegrationService:
     ) -> Dict[str, Any]:
         """Handle OpenAI integration"""
         try:
+            # Get model and max_tokens from node_config or fallback to credentials
+            model = node_config.get("model") or credentials.get("model", "gpt-4o-mini")
+            max_completion_tokens = node_config.get("max_tokens") or credentials.get("max_tokens", 2000)
+            
             service = OpenAIService(
                 api_key=credentials.get("api_key"),
-                model=credentials.get("model", "gpt-4o-mini"),
-                max_tokens=credentials.get("max_tokens", 2000)
+                model=model,
+                max_completion_tokens=max_completion_tokens
             )
             
             # Extract prompt and parameters
@@ -323,12 +327,13 @@ class IntegrationService:
             processed_prompt = self._process_variables(prompt, input_data)
             processed_system_prompt = self._process_variables(system_prompt, input_data)
             
-            # Execute OpenAI request
+            # Execute OpenAI request with all parameters
             result = await service.generate_completion(
                 prompt=processed_prompt,
                 system_prompt=processed_system_prompt,
                 temperature=node_config.get("temperature", 0.7),
-                max_tokens=node_config.get("max_tokens", credentials.get("max_tokens", 2000))
+                max_completion_tokens=max_completion_tokens,
+                model=model
             )
             
             return {
@@ -340,6 +345,7 @@ class IntegrationService:
             }
             
         except Exception as e:
+            logger.error(f"OpenAI integration error: {e}", exc_info=True)
             return {
                 "success": False,
                 "provider": "openai",

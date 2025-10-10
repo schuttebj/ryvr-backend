@@ -814,9 +814,20 @@ async def get_tool_catalog(
                             "base_credits": 1,
                             "fields": [
                                 {"name": "prompt", "type": "textarea", "required": True, "description": "Text prompt for AI"},
-                                {"name": "model", "type": "select", "options": ["gpt-4", "gpt-3.5-turbo"], "default": "gpt-3.5-turbo", "description": "AI model to use"},
-                                {"name": "max_tokens", "type": "integer", "default": 500, "min": 1, "max": 4000, "description": "Maximum response length"},
-                                {"name": "temperature", "type": "number", "default": 0.7, "min": 0, "max": 2, "step": 0.1, "description": "Creativity level (0=conservative, 2=creative)"}
+                                {"name": "system_prompt", "type": "textarea", "required": False, "description": "System message to set AI behavior (optional)"},
+                                {
+                                    "name": "model", 
+                                    "type": "select", 
+                                    "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"], 
+                                    "default": "gpt-4o-mini", 
+                                    "required": False,
+                                    "description": "AI model to use"
+                                },
+                                {"name": "max_tokens", "type": "integer", "default": 2000, "min": 1, "max": 128000, "required": False, "description": "Maximum tokens to generate"},
+                                {"name": "temperature", "type": "number", "default": 0.7, "min": 0, "max": 2, "step": 0.1, "required": False, "description": "Creativity level (0=conservative, 2=creative)"},
+                                {"name": "top_p", "type": "number", "default": 1.0, "min": 0, "max": 1, "step": 0.1, "required": False, "description": "Nucleus sampling (alternative to temperature)"},
+                                {"name": "frequency_penalty", "type": "number", "default": 0.0, "min": -2.0, "max": 2.0, "step": 0.1, "required": False, "description": "Penalize frequent tokens"},
+                                {"name": "presence_penalty", "type": "number", "default": 0.0, "min": -2.0, "max": 2.0, "step": 0.1, "required": False, "description": "Penalize repeated topics"}
                             ]
                         },
                         "content_analysis": {
@@ -826,7 +837,16 @@ async def get_tool_catalog(
                             "base_credits": 2,
                             "fields": [
                                 {"name": "content", "type": "textarea", "required": True, "description": "Content to analyze"},
-                                {"name": "analysis_type", "type": "multiselect", "options": ["sentiment", "topics", "keywords", "readability"], "description": "Types of analysis to perform"}
+                                {"name": "analysis_type", "type": "select", "options": ["seo", "sentiment", "keywords", "general"], "default": "general", "description": "Type of analysis to perform"},
+                                {"name": "instructions", "type": "textarea", "required": False, "description": "Additional analysis instructions (optional)"},
+                                {
+                                    "name": "model", 
+                                    "type": "select", 
+                                    "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"], 
+                                    "default": "gpt-4o-mini", 
+                                    "required": False,
+                                    "description": "AI model to use"
+                                }
                             ]
                         }
                     }
