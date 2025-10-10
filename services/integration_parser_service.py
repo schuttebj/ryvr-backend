@@ -124,18 +124,21 @@ When you see authentication using an API key, determine WHERE it should be sent:
    - API key in the URL: ?key=YOUR_KEY, ?api_key=YOUR_KEY, ?apikey=YOUR_KEY, ?token=YOUR_KEY
    - Example: http://api.example.com/endpoint?key=abc123
    - Set auth_type to "api_key" 
-   - Include "query_param_name" field with the parameter name (e.g., "key", "api_key")
-   - DO NOT include "header_name"
+   - Set "query_param_name" to the parameter name (e.g., "key", "api_key")
+   - Set "header_name" to "" (empty string)
 
 2. **Header Auth** - If the API documentation shows:
    - API key in headers: X-API-Key, Authorization, api-key, etc.
    - Example: curl -H "X-API-Key: abc123"
    - Set auth_type to "api_key"
-   - Include "header_name" field (e.g., "X-API-Key")
-   - DO NOT include "query_param_name"
+   - Set "header_name" to the header name (e.g., "X-API-Key")
+   - Set "query_param_name" to "" (empty string)
 
 3. **No Auth** - If no authentication is mentioned or required:
    - Set auth_type to "none"
+   - Set both "header_name" and "query_param_name" to "" (empty strings)
+
+IMPORTANT: Always provide both "header_name" and "query_param_name" fields, even if empty. Use empty string "" for fields that don't apply.
 
 For parameter types:
 - "string" - Text value
@@ -232,7 +235,7 @@ Extract the integration configuration following the schema. Include all relevant
                         "header_name": {"type": "string"},
                         "query_param_name": {"type": "string"}
                     },
-                    "required": ["type", "credentials"],
+                    "required": ["type", "credentials", "header_name", "query_param_name"],
                     "additionalProperties": False
                 },
                 "operations": {
