@@ -440,8 +440,8 @@ class DynamicIntegrationService:
             api_key_field = next((name for name in credentials.keys()), None)
             api_key = credentials.get(api_key_field, "") if api_key_field else ""
             
-            # If query_param_name is specified, skip adding to headers (will be added to URL)
-            if "query_param_name" in auth_config:
+            # Check if query_param_name has a non-empty value (not just exists)
+            if auth_config.get("query_param_name"):  # Only true if not empty string
                 logger.info(f"API Key will be added as query parameter: {auth_config.get('query_param_name')}")
             elif api_key:
                 # Add to header
