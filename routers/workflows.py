@@ -755,6 +755,24 @@ async def get_tool_catalog(
 ):
     """Get available tools/integrations with dynamic field definitions"""
     try:
+        # Get OpenAI models from database for dynamic model options
+        openai_models = []
+        default_model = "gpt-4o-mini"
+        try:
+            from services.openai_model_service import OpenAIModelService
+            model_service = OpenAIModelService(db)
+            models_data = await model_service.get_models_for_dropdown()
+            openai_models = [model["id"] for model in models_data if model.get("id")]
+            # Get default model
+            for model in models_data:
+                if model.get("is_default"):
+                    default_model = model["id"]
+                    break
+            logger.info(f"Loaded {len(openai_models)} OpenAI models from database, default: {default_model}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch OpenAI models from database, using fallback: {e}")
+            openai_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
+        
         # Start with hardcoded tool catalog
         tool_catalog = {
             "schema_version": "ryvr.tools.v1",
@@ -813,13 +831,13 @@ async def get_tool_catalog(
                             "is_async": False,
                             "base_credits": 1,
                             "fields": [
-                                {"name": "prompt", "type": "textarea", "required": True, "description": "Text prompt for AI"},
                                 {"name": "system_prompt", "type": "textarea", "required": False, "description": "System message to set AI behavior (optional)"},
+                                {"name": "prompt", "type": "textarea", "required": True, "description": "Text prompt for AI"},
                                 {
                                     "name": "model", 
                                     "type": "select", 
-                                    "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"], 
-                                    "default": "gpt-4o-mini", 
+                                    "options": openai_models,  # Dynamic models from database
+                                    "default": default_model, 
                                     "required": False,
                                     "description": "AI model to use"
                                 },
@@ -842,8 +860,8 @@ async def get_tool_catalog(
                                 {
                                     "name": "model", 
                                     "type": "select", 
-                                    "options": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"], 
-                                    "default": "gpt-4o-mini", 
+                                    "options": openai_models,  # Dynamic models from database
+                                    "default": default_model, 
                                     "required": False,
                                     "description": "AI model to use"
                                 }
