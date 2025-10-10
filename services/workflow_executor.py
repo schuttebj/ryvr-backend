@@ -284,8 +284,12 @@ class WorkflowExecutor:
             return "ai"
         
         # Content extraction
-        if raw_type.startswith("content_extract"):
+        if raw_type.startswith("content_extract") or raw_type == "content_extract":
             return "data_extraction"
+        
+        # WordPress nodes
+        if raw_type.startswith("wordpress_") or raw_type == "wordpress_posts":
+            return "api_call"
         
         # Email nodes
         if raw_type.startswith("email_") or raw_type == "email":
@@ -293,27 +297,27 @@ class WorkflowExecutor:
         
         # Webhook nodes
         if raw_type.startswith("webhook_"):
-            return "webhook"
+            return "api_call"
         
         # Transform/filter nodes
         if raw_type.startswith("transform_") or raw_type == "transform":
             return "transform"
         if raw_type.startswith("filter_"):
-            return "filter"
+            return "api_call"
         
         # Loop/iteration nodes
         if raw_type.startswith("foreach_") or raw_type.startswith("loop_"):
-            return "loop"
+            return "api_call"
         
         # Delay nodes
         if raw_type.startswith("delay_"):
-            return "delay"
+            return "api_call"
         
         # Conditional/gate nodes
         if raw_type.startswith("condition_") or raw_type == "conditional":
             return "conditional"
         if raw_type.startswith("gate_"):
-            return "gate"
+            return "api_call"
         
         # Review/approval nodes
         if raw_type.startswith("review_") or raw_type == "review":
@@ -323,8 +327,8 @@ class WorkflowExecutor:
         if raw_type.startswith("options_") or raw_type == "options":
             return "options"
         
-        # API call nodes (integrations)
-        if raw_type.startswith("api_") or "integration" in raw_type:
+        # API call nodes (integrations) - catch all for dynamic integrations
+        if raw_type.startswith("api_") or "integration" in raw_type or "_" in raw_type:
             return "api_call"
         
         # Default to task
@@ -409,17 +413,17 @@ class WorkflowExecutor:
             
             # Execute using dynamic integration service
             result = await self.dynamic_integration_service.execute_operation(
-                integration_id=integration.id,
-                operation_id=operation_id,
-                business_id=execution.business_id,
-                parameters=parameters,
-                user_id=execution.template.user_id if execution.template else 1
+                    integration_id=integration.id,
+                    operation_id=operation_id,
+                    business_id=execution.business_id,
+                    parameters=parameters,
+                user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1
             )
             
             logger.info(f"Integration execution result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
-            
-            return result
-            
+                
+                return result
+                
         except Exception as e:
             logger.error(f"Integration step execution failed: {e}", exc_info=True)
             return {
