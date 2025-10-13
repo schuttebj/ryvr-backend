@@ -1,5 +1,5 @@
 """
-Workflow Executor Service  
+Workflow Executor Service
 Handles complete workflow execution from start to finish with progress tracking
 Uses the proven execution logic from the test workflow functionality
 """
@@ -290,7 +290,9 @@ class WorkflowExecutor:
             return "ai"
         
         # Content extraction
-        if raw_type.startswith("content_extract") or raw_type == "content_extract":
+        if (raw_type.startswith("content_extract") or 
+            raw_type.startswith("content_extractor") or 
+            raw_type == "content_extract"):
             return "data_extraction"
         
         # WordPress nodes
@@ -361,8 +363,10 @@ class WorkflowExecutor:
         This replicates _execute_api_step from workflows.py router
         """
         try:
-            # Special handling for content_extract - it's a backend service, not an integration
-            if raw_type == "content_extract" or raw_type.startswith("content_extract"):
+            # Special handling for content extraction - it's a backend service, not an integration
+            if (raw_type == "content_extract" or 
+                raw_type.startswith("content_extract") or 
+                raw_type.startswith("content_extractor")):
                 logger.info(f"Content extraction detected - using backend service instead of integration")
                 return await self._execute_content_extraction(execution, step, raw_type)
             
@@ -417,7 +421,7 @@ class WorkflowExecutor:
                             logger.info(f"🔧 Resolving template for {key}: {expr[:100]}...")
                             value = self.expression_engine.resolve_expression(expr, context)
                             logger.info(f"✅ Resolved {key} to: {str(value)[:100]}...")
-                        else:
+            else:
                             # Use literal value
                             value = expr
                             logger.info(f"📌 Using literal value for {key}: {value}")
@@ -440,9 +444,9 @@ class WorkflowExecutor:
             # Execute the integration using IntegrationService (test workflow pattern)
             # IMPORTANT: input_data should contain the resolved parameters, NOT the full context
             # The handlers expect the actual parameter values in input_data
-            result = await self.integration_service.execute_integration(
-                integration_name=connection_id,
-                business_id=execution.business_id,
+                result = await self.integration_service.execute_integration(
+                    integration_name=connection_id,
+                    business_id=execution.business_id,
                 node_config=mapped_config,  # Configuration like model, temperature, etc.
                 input_data=mapped_config,   # Also pass as input_data - handlers look here for params
                 user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1,
@@ -463,7 +467,7 @@ class WorkflowExecutor:
                 }
             else:
                 raise Exception(result.get("error", "Integration execution failed"))
-            
+                
         except Exception as e:
             logger.error(f"API step execution failed: {e}", exc_info=True)
             return {
@@ -484,7 +488,7 @@ class WorkflowExecutor:
             return "openai"
         elif node_type.startswith("wordpress_"):
             return "wordpress"
-        elif node_type.startswith("content_extract"):
+        elif node_type.startswith("content_extractor") or node_type.startswith("content_extract"):
             return "content_extraction"  # Handled separately in _execute_content_extraction
         elif node_type.startswith("email_"):
             return "email"
@@ -563,10 +567,25 @@ class WorkflowExecutor:
             
             if url_source:
                 logger.info(f"🔧 Processing urlSource: {url_source}")
+                logger.info(f"📊 Available steps in context: {list(context.get('steps', {}).keys())}")
+                
+                # Log the SERP step data structure for debugging
+                serp_step_id = None
+                for step_id in context.get('steps', {}).keys():
+                    if 'seo_serp' in step_id or 'serp' in step_id:
+                        serp_step_id = step_id
+                        serp_data = context['steps'][step_id]
+                        logger.info(f"🔍 SERP step data keys: {list(serp_data.keys())}")
+                        if 'output' in serp_data:
+                            logger.info(f"🔍 SERP output keys: {list(serp_data['output'].keys()) if isinstance(serp_data['output'], dict) else type(serp_data['output'])}")
+                            if isinstance(serp_data['output'], dict) and 'data' in serp_data['output']:
+                                logger.info(f"🔍 SERP data keys: {list(serp_data['output']['data'].keys()) if isinstance(serp_data['output']['data'], dict) else type(serp_data['output']['data'])}")
+                        break
                 
                 # Resolve variables in the URL source using {{variable}} syntax
                 processed_url_source = self.expression_engine.resolve_expression(url_source, context)
                 logger.info(f"✅ Processed urlSource result: {processed_url_source}")
+                logger.info(f"✅ Result type: {type(processed_url_source)}")
                 
                 # Parse the processed result to extract URLs
                 if processed_url_source:
@@ -578,7 +597,7 @@ class WorkflowExecutor:
                         url_matches = re.findall(r'https?://[^\s+,\n\r\t]+', str(processed_url_source))
                         if url_matches:
                             urls = url_matches
-                        else:
+            else:
                             # Try splitting by common delimiters
                             urls = [
                                 url.strip() 
@@ -612,10 +631,10 @@ class WorkflowExecutor:
                     'extraction_type': config.get('extractionType', 'full_text'),
                     'extracted_at': datetime.now(timezone.utc).isoformat()
                 })
-            
-            return {
+        
+        return {
                 "status": "completed",
-                "success": True,
+            "success": True,
                 "data": {
                     "processed": {
                         "extracted_content": extracted_content
@@ -638,7 +657,7 @@ class WorkflowExecutor:
                 "error": str(e),
                 "operation": raw_type,
                 "credits_used": 0
-            }
+        }
     
     async def _execute_transform_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a transform step"""

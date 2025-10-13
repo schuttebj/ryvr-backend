@@ -911,6 +911,26 @@ async def get_tool_catalog(
                         }
                     }
                 },
+                "content_extractor": {
+                    "name": "Web Content Extractor",
+                    "description": "Extract content from web pages",
+                    "category": "content",
+                    "auth_type": "none",
+                    "operations": {
+                        "extract_content": {
+                            "name": "Extract Web Content",
+                            "description": "Extract content from a list of URLs",
+                            "is_async": False,
+                            "base_credits": 2,
+                            "fields": [
+                                {"name": "urlSource", "type": "textarea", "required": True, "description": "URL(s) to extract content from (supports variables like {{node.path}})"},
+                                {"name": "maxUrls", "type": "integer", "default": 10, "min": 1, "max": 50, "description": "Maximum number of URLs to process"},
+                                {"name": "maxLength", "type": "integer", "default": 8000, "min": 100, "max": 50000, "description": "Maximum content length per URL"},
+                                {"name": "extractionType", "type": "select", "options": ["full_text", "summary", "metadata"], "default": "full_text", "description": "Type of content to extract"}
+                            ]
+                        }
+                    }
+                },
                 "wordpress": {
                     "name": "WordPress",
                     "description": "WordPress content management and synchronization",
