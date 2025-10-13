@@ -376,14 +376,15 @@ class WorkflowExecutor:
             
             # Get connection_id and operation from step (test workflow pattern)
             # For our workflow format, we need to extract from bindings
-            connection_id = input_bindings.get("config", {}).get("integrationId")
+            integration_id = input_bindings.get("config", {}).get("integrationId")
             operation = input_bindings.get("type", raw_type)
             
-            # If no connection_id, infer provider from node type
-            if not connection_id:
-                connection_id = self._infer_provider_from_node_type(raw_type)
+            # Convert integrationId to provider name
+            # ALWAYS infer provider from node type - this uses system integrations which work
+            # The integrationId is mainly for UI reference, the actual execution uses system credentials
+            connection_id = self._infer_provider_from_node_type(raw_type)
             
-            logger.info(f"Executing API step: connection_id={connection_id}, operation={operation}")
+            logger.info(f"Executing API step: connection_id={connection_id} (inferred from {raw_type}), operation={operation}, integrationId={integration_id}")
             
             # Build input_data from bindings and static data (test workflow pattern)
             input_data = {}
