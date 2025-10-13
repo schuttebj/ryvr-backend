@@ -268,6 +268,10 @@ class IntegrationService:
     ) -> Dict[str, Any]:
         """Handle DataForSEO integration"""
         try:
+            logger.info(f"DataForSEO handler received node_config keys: {list(node_config.keys())}")
+            logger.info(f"DataForSEO handler received input_data keys: {list(input_data.keys()) if isinstance(input_data, dict) else type(input_data)}")
+            logger.info(f"DataForSEO keyword from input_data: {input_data.get('keyword') if isinstance(input_data, dict) else 'N/A'}")
+            
             service = DataForSEOService(
                 username=credentials.get("username"),
                 password=credentials.get("password"),
@@ -277,6 +281,8 @@ class IntegrationService:
             # Extract task type from node config
             task_type = node_config.get("task_type", "serp")
             endpoint = node_config.get("endpoint", "google/organic/live/advanced")
+            
+            logger.info(f"DataForSEO task_type: {task_type}, endpoint: {endpoint}")
             
             # Execute the DataForSEO request
             result = await service.execute_task(

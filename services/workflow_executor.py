@@ -401,7 +401,9 @@ class WorkflowExecutor:
             # Resolve input bindings using expression engine (test workflow pattern)
             if input_bindings:
                 config = input_bindings.get("config", {})
-                logger.info(f"Original config keys: {list(config.keys())}")
+                logger.info(f"🔍 Original config from bindings: {config}")
+                logger.info(f"🔑 Config keys: {list(config.keys())}")
+                
                 for key, expr in config.items():
                     if key == "integrationId":  # Skip metadata
                         continue
@@ -409,20 +411,22 @@ class WorkflowExecutor:
                         if isinstance(expr, str) and expr.startswith("expr:"):
                             # Evaluate JMESPath expression against context
                             value = self.expression_engine.evaluate(expr[5:].strip(), context)
+                            logger.info(f"✅ Resolved JMESPath {key}: {expr} → {value}")
                         elif isinstance(expr, str) and ("{{" in expr and "}}" in expr):
                             # Resolve template expression
-                            logger.info(f"Resolving template for {key}: {expr[:100]}...")
+                            logger.info(f"🔧 Resolving template for {key}: {expr[:100]}...")
                             value = self.expression_engine.resolve_expression(expr, context)
-                            logger.info(f"Resolved {key} to: {str(value)[:100]}...")
+                            logger.info(f"✅ Resolved {key} to: {str(value)[:100]}...")
                         else:
                             # Use literal value
                             value = expr
+                            logger.info(f"📌 Using literal value for {key}: {value}")
                         input_data[key] = value
                     except Exception as e:
-                        logger.warning(f"Failed to resolve input binding {key}: {e}")
+                        logger.warning(f"⚠️ Failed to resolve input binding {key}: {e}")
                         input_data[key] = expr
             
-            logger.info(f"Raw input_data keys before mapping: {list(input_data.keys())}")
+            logger.info(f"📦 Raw input_data before mapping: {input_data}")
             
             # Map workflow builder parameters to integration handler parameters
             # This handles differences like userPrompt -> prompt, systemPrompt -> system_prompt
@@ -434,11 +438,13 @@ class WorkflowExecutor:
                 logger.info(f"OpenAI system_prompt preview: {mapped_config.get('system_prompt', '')[:100]}...")
             
             # Execute the integration using IntegrationService (test workflow pattern)
+            # IMPORTANT: input_data should contain the resolved parameters, NOT the full context
+            # The handlers expect the actual parameter values in input_data
             result = await self.integration_service.execute_integration(
                 integration_name=connection_id,
                 business_id=execution.business_id,
-                node_config=mapped_config,  # Pass mapped config as node_config
-                input_data=context,         # Pass full context as input_data for variable resolution
+                node_config=mapped_config,  # Configuration like model, temperature, etc.
+                input_data=mapped_config,   # Also pass as input_data - handlers look here for params
                 user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1,
                 execution_id=execution.id  # Pass execution ID for API call logging
             )
@@ -498,6 +504,9 @@ class WorkflowExecutor:
         """Map workflow builder parameters to integration handler parameters"""
         mapped = config.copy()
         
+        logger.info(f"🗺️ Mapping parameters for provider: {provider}")
+        logger.info(f"   Input config: {config}")
+        
         if provider == "openai":
             # Map workflow builder parameters to OpenAI handler parameters
             if "userPrompt" in mapped:
@@ -511,12 +520,18 @@ class WorkflowExecutor:
             if "maxCompletionTokens" in mapped:
                 mapped["max_completion_tokens"] = mapped.pop("maxCompletionTokens")
             # jsonResponse and jsonSchema are now supported - keep them as-is
+        elif provider == "dataforseo":
+            # DataForSEO parameter mapping - most params should pass through as-is
+            # The service expects: keyword, location_code, language_code, device, depth
+            # Just log to verify we have the keyword
+            logger.info(f"   DataForSEO keyword: {mapped.get('keyword', 'NOT FOUND')}")
         elif provider == "wordpress":
             # WordPress parameter mapping
             if "operation" in mapped:
                 # Keep operation as-is
                 pass
         
+        logger.info(f"   Mapped config: {mapped}")
         return mapped
     
     async def _execute_content_extraction(self, execution: models.WorkflowExecution, step: Dict[str, Any], raw_type: str) -> Dict[str, Any]:
