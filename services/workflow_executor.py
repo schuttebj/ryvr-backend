@@ -1,6 +1,7 @@
 """
-Workflow Executor Service
+Workflow Executor Service  
 Handles complete workflow execution from start to finish with progress tracking
+Uses the proven execution logic from the test workflow functionality
 """
 
 import logging
@@ -118,12 +119,15 @@ class WorkflowExecutor:
                 try:
                     result = await self._execute_step(execution, step)
                     
-                    # Store step result in runtime state
+                    # Store step result in runtime state WITH FULL OUTPUT DATA
+                    # This matches the test workflow pattern for variable bindings
                     if not execution.runtime_state.get("steps"):
                         execution.runtime_state["steps"] = {}
                     
                     execution.runtime_state["steps"][step_id] = {
-                        "result": result,
+                        "output": result,  # Store full result as "output" for variable binding
+                        "result": result,   # Also store as "result" for backward compatibility
+                        "data": result.get("data", {}),  # Extract data field
                         "completed_at": datetime.now(timezone.utc).isoformat(),
                         "status": "success"
                     }
@@ -137,9 +141,13 @@ class WorkflowExecutor:
                     credits_used = result.get("credits_used", 0)
                     execution.credits_used += credits_used
                     
+                    # Mark the execution.runtime_state as modified for SQLAlchemy
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(execution, "runtime_state")
+                    
                     self.db.commit()
                     
-                    logger.info(f"Step {step_name} completed successfully")
+                    logger.info(f"Step {step_name} completed successfully - stored in runtime_state")
                     
                 except Exception as step_error:
                     logger.error(f"Step {step_name} failed: {str(step_error)}", exc_info=True)
@@ -349,95 +357,90 @@ class WorkflowExecutor:
     
     async def _execute_integration_step(self, execution: models.WorkflowExecution, step: Dict[str, Any], raw_type: str) -> Dict[str, Any]:
         """
-        Execute any integration-based step using IntegrationService
-        This uses the same approach as the working test workflow functionality
+        Execute integration step using the EXACT same logic as the working test workflow
+        This replicates _execute_api_step from workflows.py router
         """
         try:
-            # Extract config from nested structure
-            input_data_wrapper = step.get("input", {})
-            bindings = input_data_wrapper.get("bindings", step.get("bindings", {}))
-            config = bindings.get("config", {})
-            
-            # Get integration ID from config and determine provider name
-            integration_id = config.get("integrationId")
-            
-            # Determine integration name/provider from integrationId or node type
-            if integration_id:
-                # Try to look up the integration to get its provider name
-                if isinstance(integration_id, str) and integration_id.startswith("integration_"):
-                    # Find the integration by matching it to business integrations
-                    business_integrations = self.db.query(models.BusinessIntegration).filter(
-                        models.BusinessIntegration.business_id == execution.business_id,
-                        models.BusinessIntegration.is_active == True
-                    ).all()
-                    
-                    # Try to find matching integration
-                    integration_name = None
-                    for bi in business_integrations:
-                        # Check if this is a DataForSEO, OpenAI, WordPress, etc. integration
-                        provider = bi.integration.provider
-                        if provider:
-                            integration_name = provider
-                            break
-                    
-                    if not integration_name:
-                        # Fallback: infer from node type
-                        integration_name = self._infer_provider_from_node_type(raw_type)
-                else:
-                    # Direct provider name
-                    integration_name = integration_id
-            else:
-                # No integrationId, infer from node type
-                integration_name = self._infer_provider_from_node_type(raw_type)
-            
-            logger.info(f"Executing integration step: provider={integration_name}, type={raw_type}")
-            
-            # Build runtime context for parameter resolution
-            runtime_context = {
+            # Build runtime context for expression resolution
+            context = {
                 "inputs": execution.runtime_state.get("inputs", {}),
                 "globals": execution.runtime_state.get("globals", {}),
                 "steps": execution.runtime_state.get("steps", {}),
                 "runtime": execution.runtime_state.get("runtime", {})
             }
             
-            # Prepare node_config (the configuration for this specific node)
-            node_config = {}
-            for key, value in config.items():
-                if key != "integrationId":  # Skip metadata
-                    # Resolve any expressions in the config values
-                    if isinstance(value, str) and ("{{" in value or value.startswith("expr:")):
-                        try:
-                            node_config[key] = self.expression_engine.resolve_expression(value, runtime_context)
-                        except Exception as e:
-                            logger.warning(f"Failed to resolve config parameter '{key}': {e}")
-                            node_config[key] = value
-                    else:
-                        node_config[key] = value
+            # Extract step configuration using the EXACT same structure as test workflow
+            step_input = step.get("input", {})
+            input_bindings = step_input.get("bindings", {})
+            static_data = step_input.get("static", {})
             
-            # Prepare input_data (data from previous steps)
-            input_data = {
-                "node_type": raw_type,
-                "step_id": step.get("id"),
-                **bindings  # Include all bindings as input data
-            }
+            # Get connection_id and operation from step (test workflow pattern)
+            # For our workflow format, we need to extract from bindings
+            connection_id = input_bindings.get("config", {}).get("integrationId")
+            operation = input_bindings.get("type", raw_type)
             
-            logger.info(f"Executing operation with config keys: {list(node_config.keys())}")
+            # If no connection_id, infer provider from node type
+            if not connection_id:
+                connection_id = self._infer_provider_from_node_type(raw_type)
             
-            # Execute using IntegrationService (same as working test workflow)
+            logger.info(f"Executing API step: connection_id={connection_id}, operation={operation}")
+            
+            # Build input_data from bindings and static data (test workflow pattern)
+            input_data = {}
+            
+            # Add static data first
+            if static_data:
+                input_data.update(static_data)
+            
+            # Resolve input bindings using expression engine (test workflow pattern)
+            if input_bindings:
+                config = input_bindings.get("config", {})
+                for key, expr in config.items():
+                    if key == "integrationId":  # Skip metadata
+                        continue
+                    try:
+                        if isinstance(expr, str) and expr.startswith("expr:"):
+                            # Evaluate JMESPath expression against context
+                            value = self.expression_engine.evaluate(expr[5:].strip(), context)
+                        elif isinstance(expr, str) and ("{{" in expr and "}}" in expr):
+                            # Resolve template expression
+                            value = self.expression_engine.resolve_expression(expr, context)
+                        else:
+                            # Use literal value
+                            value = expr
+                        input_data[key] = value
+                    except Exception as e:
+                        logger.warning(f"Failed to resolve input binding {key}: {e}")
+                        input_data[key] = expr
+            
+            logger.info(f"Executing with input_data keys: {list(input_data.keys())}")
+            
+            # Execute the integration using IntegrationService (test workflow pattern)
             result = await self.integration_service.execute_integration(
-                integration_name=integration_name,
+                integration_name=connection_id,
                 business_id=execution.business_id,
-                node_config=node_config,
-                input_data=input_data,
+                node_config=input_data,  # Pass resolved config as node_config
+                input_data=input_data,   # Also pass as input_data
                 user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1
             )
             
-            logger.info(f"Integration execution result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
+            logger.info(f"Integration result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
             
-            return result
+            # Return in the same format as test workflow
+            if result.get("success"):
+                return {
+                    "status": "completed",
+                    "success": True,
+                    "provider": result.get("provider"),
+                    "data": result.get("data"),
+                    "credits_used": result.get("credits_used", 0),
+                    "operation": operation
+                }
+            else:
+                raise Exception(result.get("error", "Integration execution failed"))
             
         except Exception as e:
-            logger.error(f"Integration step execution failed: {e}", exc_info=True)
+            logger.error(f"API step execution failed: {e}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e),
@@ -446,20 +449,34 @@ class WorkflowExecutor:
             }
     
     def _infer_provider_from_node_type(self, node_type: str) -> str:
-        """Infer integration provider name from node type"""
+        """
+        Infer integration provider name from node type
+        Maps to actual integration handlers available in IntegrationService
+        """
         if node_type.startswith("seo_"):
             return "dataforseo"
-        elif node_type.startswith("ai_openai") or node_type.startswith("openai"):
+        elif node_type.startswith("ai_openai") or node_type.startswith("openai") or node_type.startswith("ai_"):
             return "openai"
         elif node_type.startswith("wordpress_"):
             return "wordpress"
         elif node_type.startswith("content_extract"):
-            return "content_extraction"
+            # Content extraction doesn't have a handler yet
+            # TODO: Implement content extraction handler
+            logger.warning(f"Content extraction not yet implemented, node type: {node_type}")
+            return "content_extraction"  # Will fail with "no handler" - expected for now
         elif node_type.startswith("email_"):
             return "email"
+        elif node_type.startswith("google_ads"):
+            return "google_ads"
+        elif node_type.startswith("google_analytics") or node_type.startswith("ga_"):
+            return "google_analytics"
+        elif node_type.startswith("meta_ads") or node_type.startswith("facebook_"):
+            return "meta_ads"
         else:
-            # Default: use the node type as provider name
-            return node_type.split("_")[0] if "_" in node_type else node_type
+            # Default: use the first part of the node type as provider name
+            provider = node_type.split("_")[0] if "_" in node_type else node_type
+            logger.warning(f"Unknown node type '{node_type}', inferred provider: '{provider}'")
+            return provider
     
     async def _execute_transform_step(self, execution: models.WorkflowExecution, step: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a transform step"""
