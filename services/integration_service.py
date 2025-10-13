@@ -311,9 +311,12 @@ class IntegrationService:
     ) -> Dict[str, Any]:
         """Handle OpenAI integration"""
         try:
+            logger.info(f"OpenAI handler received node_config keys: {list(node_config.keys())}")
+            logger.info(f"OpenAI handler received input_data type: {type(input_data)}")
+            
             # Get model and max_tokens from node_config or fallback to credentials
             model = node_config.get("model") or credentials.get("model", "gpt-4o-mini")
-            max_completion_tokens = node_config.get("max_tokens") or credentials.get("max_tokens", 2000)
+            max_completion_tokens = node_config.get("max_completion_tokens") or node_config.get("max_tokens") or credentials.get("max_tokens", 2000)
             
             service = OpenAIService(
                 api_key=credentials.get("api_key"),
@@ -325,17 +328,46 @@ class IntegrationService:
             prompt = node_config.get("prompt", "")
             system_prompt = node_config.get("system_prompt", "")
             
+            logger.info(f"OpenAI prompt length: {len(prompt)}, system_prompt length: {len(system_prompt)}")
+            logger.info(f"OpenAI prompt preview: {prompt[:100]}...")
+            logger.info(f"OpenAI system_prompt preview: {system_prompt[:100]}...")
+            
             # Process variables in prompts using input data
             processed_prompt = self._process_variables(prompt, input_data)
             processed_system_prompt = self._process_variables(system_prompt, input_data)
             
+            # Check if JSON response is requested
+            json_response = node_config.get("jsonResponse", False)
+            json_schema = node_config.get("jsonSchema")
+            
+            # Build response_format if JSON is requested
+            response_format = None
+            if json_response and json_schema:
+                # Parse JSON schema if it's a string
+                if isinstance(json_schema, str):
+                    import json
+                    json_schema = json.loads(json_schema)
+                
+                response_format = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "structured_output",
+                        "strict": True,
+                        "schema": json_schema
+                    }
+                }
+            elif json_response:
+                # Just request JSON output without strict schema
+                response_format = {"type": "json_object"}
+            
             # Execute OpenAI request with all parameters
-            result = await service.generate_completion(
+            result = service.generate_content(
                 prompt=processed_prompt,
-                system_prompt=processed_system_prompt,
+                system_message=processed_system_prompt,
                 temperature=node_config.get("temperature", 0.7),
                 max_completion_tokens=max_completion_tokens,
-                model=model
+                model=model,
+                response_format=response_format
             )
             
             return {
