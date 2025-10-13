@@ -107,7 +107,8 @@ class IntegrationService:
         business_id: int,
         node_config: Dict[str, Any],
         input_data: Dict[str, Any],
-        user_id: int
+        user_id: int,
+        execution_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """Execute an integration for a workflow node"""
         try:
@@ -132,14 +133,15 @@ class IntegrationService:
                 business_id=business_id
             )
             
-            # Log the API call
+            # Log the API call (will skip if no execution_id)
             await self._log_api_call(
                 integration_name=integration_name,
                 business_id=business_id,
                 node_config=node_config,
                 input_data=input_data,
                 result=result,
-                user_id=user_id
+                user_id=user_id,
+                execution_id=execution_id
             )
             
             return result
@@ -642,12 +644,19 @@ class IntegrationService:
         node_config: Dict[str, Any],
         input_data: Dict[str, Any],
         result: Dict[str, Any],
-        user_id: int
+        user_id: int,
+        execution_id: Optional[int] = None
     ):
         """Log API call for tracking and billing"""
         try:
+            # Skip logging if no execution_id (required by database schema)
+            # This happens when integrations are called outside of workflow context
+            if execution_id is None:
+                logger.debug(f"Skipping API call logging for {integration_name} (no execution_id)")
+                return
+            
             api_call = models.APICall(
-                workflow_execution_id=None,  # Will be set if called from workflow
+                workflow_execution_id=execution_id,
                 integration_name=integration_name,
                 endpoint=f"{integration_name}_api",
                 request_data={
@@ -666,4 +675,9 @@ class IntegrationService:
             
         except Exception as e:
             logger.error(f"Failed to log API call: {e}")
+            # Don't let logging errors break the workflow
+            try:
+                self.db.rollback()
+            except:
+                pass
             # Don't fail the main operation if logging fails

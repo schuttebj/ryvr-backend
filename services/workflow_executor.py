@@ -422,7 +422,8 @@ class WorkflowExecutor:
                 business_id=execution.business_id,
                 node_config=input_data,  # Pass resolved config as node_config
                 input_data=input_data,   # Also pass as input_data
-                user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1
+                user_id=execution.template.created_by if (execution.template and execution.template.created_by) else 1,
+                execution_id=execution.id  # Pass execution ID for API call logging
             )
             
             logger.info(f"Integration result: success={result.get('success')}, credits={result.get('credits_used', 0)}")
