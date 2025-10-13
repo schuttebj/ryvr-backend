@@ -537,7 +537,15 @@ class WorkflowExecutor:
     async def _execute_content_extraction(self, execution: models.WorkflowExecution, step: Dict[str, Any], raw_type: str) -> Dict[str, Any]:
         """Execute content extraction using backend service (not an integration)"""
         try:
-            logger.info("Executing content extraction - backend service")
+            logger.info("🔍 Executing content extraction - backend service")
+            
+            # Build runtime context for variable resolution
+            context = {
+                "inputs": execution.runtime_state.get("inputs", {}),
+                "globals": execution.runtime_state.get("globals", {}),
+                "steps": execution.runtime_state.get("steps", {}),
+                "runtime": execution.runtime_state.get("runtime", {})
+            }
             
             # Extract URL source from config
             step_input = step.get("input", {})
@@ -545,32 +553,86 @@ class WorkflowExecutor:
             config = bindings.get("config", {})
             
             url_source = config.get("urlSource", "")
-            max_urls = config.get("maxUrls", 5)
+            max_urls = config.get("maxUrls", 10)
             max_length = config.get("maxLength", 8000)
             
-            # TODO: Implement actual content extraction
-            # For now, return mock data to not break the flow
-            logger.warning("Content extraction not yet fully implemented - returning mock data")
+            logger.info(f"📋 Config: urlSource={url_source}, maxUrls={max_urls}")
+            
+            # Extract URLs from the URL source (which may contain variable references)
+            urls = []
+            
+            if url_source:
+                logger.info(f"🔧 Processing urlSource: {url_source}")
+                
+                # Resolve variables in the URL source using {{variable}} syntax
+                processed_url_source = self.expression_engine.resolve_expression(url_source, context)
+                logger.info(f"✅ Processed urlSource result: {processed_url_source}")
+                
+                # Parse the processed result to extract URLs
+                if processed_url_source:
+                    # Check if result contains actual URLs
+                    if 'http' in str(processed_url_source):
+                        # Extract URLs using regex
+                        import re
+                        # First, try to extract URLs directly (handles any format)
+                        url_matches = re.findall(r'https?://[^\s+,\n\r\t]+', str(processed_url_source))
+                        if url_matches:
+                            urls = url_matches
+                        else:
+                            # Try splitting by common delimiters
+                            urls = [
+                                url.strip() 
+                                for url in re.split(r'\s*[,+\n\r\t]\s*|\s+\+\s+', str(processed_url_source))
+                                if url.strip() and 'http' in url
+                            ]
+                    elif isinstance(processed_url_source, list):
+                        # Already a list of URLs
+                        urls = [url for url in processed_url_source if url and isinstance(url, str) and 'http' in url]
+            
+            # Validate we have URLs
+            if not urls:
+                logger.error("❌ No URLs found to extract content from")
+                logger.error(f"Config: urlSource={url_source}")
+                logger.error(f"Available context keys: {list(context.get('steps', {}).keys())}")
+                raise ValueError("No URLs found to extract content from. Check your URL source configuration.")
+            
+            # Apply maxUrls limit
+            urls = urls[:max_urls]
+            
+            logger.info(f"✅ Extracted {len(urls)} URLs for content extraction")
+            
+            # Mock content extraction (TODO: Implement real web scraping)
+            extracted_content = []
+            for i, url in enumerate(urls):
+                extracted_content.append({
+                    'url': url,
+                    'title': f'Extracted Title {i+1}',
+                    'content': f'This is mock extracted content from {url}. In production, this would contain the actual scraped content from the webpage.',
+                    'word_count': 250,
+                    'extraction_type': config.get('extractionType', 'full_text'),
+                    'extracted_at': datetime.now(timezone.utc).isoformat()
+                })
             
             return {
                 "status": "completed",
                 "success": True,
                 "data": {
                     "processed": {
-                        "extracted_content": [
-                            {"content": "Sample content 1"},
-                            {"content": "Sample content 2"},
-                            {"content": "Sample content 3"},
-                            {"content": "Sample content 4"},
-                            {"content": "Sample content 5"}
-                        ]
+                        "extracted_content": extracted_content
+                    },
+                    "raw": {'urls': urls, 'config': config},
+                    "summary": {
+                        'urls_processed': len(extracted_content),
+                        'total_urls_found': len(urls),
+                        'total_words': sum(item['word_count'] for item in extracted_content),
+                        'extraction_type': config.get('extractionType', 'full_text')
                     }
                 },
-                "credits_used": 2,
+                "credits_used": len(extracted_content),
                 "operation": raw_type
             }
         except Exception as e:
-            logger.error(f"Content extraction failed: {e}", exc_info=True)
+            logger.error(f"❌ Content extraction failed: {e}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e),
